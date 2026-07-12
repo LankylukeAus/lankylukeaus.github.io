@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<!-- ════════════════════════════════════════════════════════════════════
+     NEW MACHINE TEMPLATE
+     1. Copy this file to  machines/<boxname>.html
+     2. Find/replace  BOXNAME  and fill the TODO sections
+     3. Add a card in index.html (copy the TEMPLATE block there)
+     ════════════════════════════════════════════════════════════════════ -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BOXNAME — HTB Writeup</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+</head>
+<body>
+  <div class="banner">
+    🔒 <strong>Private notes</strong> — my own reference. Flags redacted out of habit.
+  </div>
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">luke<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html">back to index</a>
+    <h1 style="margin-top:16px;">BOXNAME</h1>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/BOXNAME" target="_blank" rel="noopener">app.hackthebox.com/machines/BOXNAME</a></div>
+    <div class="machine-meta">
+      <span class="pill os-linux">Linux</span>          <!-- or: os- + Windows -->
+      <span class="pill diff-medium">Medium</span>      <!-- diff-easy | diff-medium | diff-hard -->
+      <!-- season boxes only: --> <span class="pill season">Season 11</span>
+      <span class="pill rooted">● rooted</span>
+      <span class="pill">tag</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">TL;DR</span>
+      One-sentence summary of the full chain.
+    </div>
+
+    <!-- ── 1. Foothold ──────────────────────────────────────────── -->
+    <h2><span class="num">01</span>Enumeration &amp; Foothold</h2>
+    <h3>Port scan</h3>
+    <pre data-lang="bash"><code>nmap -sC -sV -oN nmap/initial 10.10.11.XX</code></pre>
+    <p>What the scan showed, and the vuln that got the first shell.</p>
+    <div class="flag">
+      <span class="label">user.txt</span>
+      &lt;redacted&gt;
+    </div>
+
+    <!-- ── 2. Privesc ───────────────────────────────────────────── -->
+    <h2><span class="num">02</span>Privilege Escalation</h2>
+    <p>How I found the vector and what I exploited.</p>
+    <pre data-lang="bash"><code># the exploit</code></pre>
+    <div class="flag">
+      <span class="label">root.txt</span>
+      &lt;redacted&gt;
+    </div>
+
+    <!-- ── 3. Takeaways ─────────────────────────────────────────── -->
+    <h2><span class="num">03</span>Takeaways</h2>
+    <ul>
+      <li>Lesson one.</li>
+      <li>Lesson two.</li>
+    </ul>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html">back to index</a></p>
+  </article>
+
+  <footer>
+    <div class="wrap">BOXNAME · rooted · notes by Luke &nbsp;·&nbsp; <a href="../index.html">all writeups</a></div>
+  </footer>
+</body>
+</html>

