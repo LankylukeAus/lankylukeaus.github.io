@@ -17,8 +17,6 @@
         <a class="tab" data-tab="badges">Badges</a>
         <a class="tab" data-tab="certs">Certs</a>
         <a class="tab" data-tab="lab">Hacking Lab</a>
-        <a class="tab" data-tab="writeups">Write-ups</a>
-        <a class="tab" data-tab="videos">Videos</a>
       </nav>
     </div>
   </header>
@@ -231,32 +229,53 @@
     <!-- ══ HACKING LAB ══════════════════════════════════════════ -->
     <section id="lab" class="tab-panel">
       <h2 class="panel-head">Hacking Lab</h2>
-      <p class="panel-sub">Machines and rooms completed across platforms — 4 HTB machines, 16 TryHackMe rooms.</p>
+      <p class="panel-sub">4 HTB machines, 16 TryHackMe rooms. Write-ups and video walkthroughs are linked on each lab, where done.</p>
 
-      <h4 style="font-family:var(--mono);font-size:13px;color:var(--fg-dim);letter-spacing:1px;margin:8px 0 12px;">▚ HACK THE BOX — MACHINES</h4>
+      <h4 class="lab-h">▚ Hack The Box — Machines</h4>
       <div class="grid">
         <div class="card static"><div class="row"><h3>MakeSense</h3><span class="pill rooted">● rooted</span></div>
           <p>Access-control gap in a custom app → file write into a root-owned path.</p>
-          <div class="meta"><span class="pill os-linux">Linux</span><span class="pill diff-medium">Medium</span><span class="pill season">Season 11</span></div></div>
-        <div class="card static"><div class="row"><h3>Nexus</h3><span class="pill rooted">● rooted</span></div>
-          <p>Retired · Linux.</p>
-          <div class="meta"><span class="pill os-linux">Linux</span><span class="pill diff-easy">Easy</span></div></div>
-        <div class="card static"><div class="row"><h3>CCTV</h3><span class="pill rooted">● rooted</span></div>
-          <p>Default creds → creds in shell history → forged auth signature.</p>
-          <div class="meta"><span class="pill os-linux">Linux</span><span class="pill diff-easy">Easy</span></div></div>
+          <div class="meta"><span class="pill os-linux">Linux</span><span class="pill diff-medium">Medium</span><span class="pill season">Season 11</span></div>
+          <div class="acts"><a class="act lock" href="machines/makesense.html">🔒 Writeup (locked)</a></div></div>
         <div class="card static"><div class="row"><h3>Support</h3><span class="pill rooted">● rooted</span></div>
           <p>Anon SMB → decompiled binary → LDAP → RBCD → SYSTEM.</p>
-          <div class="meta"><span class="pill" style="color:var(--cyan);border-color:rgba(46,230,214,0.35)">Windows</span><span class="pill diff-easy">Easy</span></div></div>
+          <div class="meta"><span class="pill" style="color:var(--cyan);border-color:rgba(46,230,214,0.35)">Windows</span><span class="pill diff-easy">Easy</span></div>
+          <div class="acts"><a class="act" href="machines/support.html">📄 Writeup</a></div></div>
+        <div class="card static"><div class="row"><h3>CCTV</h3><span class="pill rooted">● rooted</span></div>
+          <p>Default creds → creds in shell history → forged auth signature.</p>
+          <div class="meta"><span class="pill os-linux">Linux</span><span class="pill diff-easy">Easy</span></div>
+          <div class="acts"><a class="act" href="machines/cctv.html">📄 Writeup</a></div></div>
+        <div class="card static"><div class="row"><h3>Nexus</h3><span class="pill rooted">● rooted</span></div>
+          <p>Retired · Linux.</p>
+          <div class="meta"><span class="pill os-linux">Linux</span><span class="pill diff-easy">Easy</span></div>
+          <div class="acts"><span class="act soon">Writeup soon</span></div></div>
       </div>
 
-      <h4 style="font-family:var(--mono);font-size:13px;color:var(--fg-dim);letter-spacing:1px;margin:32px 0 12px;">◆ TRYHACKME — ROOMS</h4>
+      <h4 class="lab-h">◆ TryHackMe — Rooms</h4>
+      <p class="lab-sub">Documented · writeup + video</p>
+      <div class="grid">
+        <div class="card static"><div class="row"><h3>Relevant</h3><span class="pill rooted">● completed</span></div>
+          <p>SMB webshell → SeImpersonate → SYSTEM.</p>
+          <div class="meta"><span class="pill" style="color:var(--cyan);border-color:rgba(46,230,214,0.35)">Windows</span><span class="pill diff-medium">Medium</span></div>
+          <div class="acts"><a class="act" href="machines/thm-relevant.html">📄 Writeup</a><a class="act vid" href="https://www.youtube.com/watch?v=VW17e6YKuUw" target="_blank" rel="noopener">▶ Video</a></div></div>
+        <div class="card static"><div class="row"><h3>Jurassic Park</h3><span class="pill rooted">● completed</span></div>
+          <p>Manual union-based SQL injection.</p>
+          <div class="meta"><span class="pill os-linux">Web</span><span class="pill diff-hard">Hard</span></div>
+          <div class="acts"><a class="act" href="machines/thm-jurassicpark.html">📄 Writeup</a><a class="act vid" href="https://www.youtube.com/watch?v=AX_YlKmsmqQ" target="_blank" rel="noopener">▶ Video</a></div></div>
+        <div class="card static"><div class="row"><h3>Kenobi</h3><span class="pill rooted">● completed</span></div>
+          <p>ProFTPd mod_copy + NFS → SUID path hijack.</p>
+          <div class="meta"><span class="pill os-linux">Linux</span><span class="pill diff-easy">Easy</span></div>
+          <div class="acts"><a class="act" href="machines/thm-kenobi.html">📄 Writeup</a><a class="act vid" href="https://www.youtube.com/watch?v=jWCIYEBP67Q" target="_blank" rel="noopener">▶ Video</a></div></div>
+        <div class="card static"><div class="row"><h3>Blue</h3><span class="pill rooted">● completed</span></div>
+          <p>EternalBlue (MS17-010) → SYSTEM.</p>
+          <div class="meta"><span class="pill" style="color:var(--cyan);border-color:rgba(46,230,214,0.35)">Windows</span><span class="pill diff-easy">Easy</span></div>
+          <div class="acts"><a class="act" href="machines/thm-blue.html">📄 Writeup</a><a class="act vid" href="https://www.youtube.com/watch?v=4cbWAqjNt_M" target="_blank" rel="noopener">▶ Video</a></div></div>
+      </div>
+
+      <p class="lab-sub">Also completed</p>
       <div class="rooms">
-        <div class="room"><span class="dot hard"></span><div><div class="rn">Jurassic Park</div><div class="rd hard">Hard · CTF · ▶</div></div></div>
-        <div class="room"><span class="dot medium"></span><div><div class="rn">Relevant</div><div class="rd medium">Medium · Pentest · ▶</div></div></div>
-        <div class="room"><span class="dot easy"></span><div><div class="rn">Blue</div><div class="rd easy">Easy · Windows · ▶</div></div></div>
         <div class="room"><span class="dot easy"></span><div><div class="rn">Vulnversity</div><div class="rd easy">Easy · Web</div></div></div>
         <div class="room"><span class="dot easy"></span><div><div class="rn">Game Zone</div><div class="rd easy">Easy · SQLi</div></div></div>
-        <div class="room"><span class="dot easy"></span><div><div class="rn">Kenobi</div><div class="rd easy">Easy · Linux · ▶</div></div></div>
         <div class="room"><span class="dot easy"></span><div><div class="rn">Steel Mountain</div><div class="rd easy">Easy · Windows</div></div></div>
         <div class="room"><span class="dot easy"></span><div><div class="rn">Alfred</div><div class="rd easy">Easy · Jenkins</div></div></div>
         <div class="room"><span class="dot easy"></span><div><div class="rn">OWASP Juice Shop</div><div class="rd easy">Easy · Web</div></div></div>
@@ -268,69 +287,10 @@
         <div class="room"><span class="dot easy"></span><div><div class="rn">Nessus</div><div class="rd easy">Easy · Vuln Scan</div></div></div>
         <div class="room"><span class="dot easy"></span><div><div class="rn">Sakura Room</div><div class="rd easy">Easy · OSINT</div></div></div>
       </div>
-    </section>
 
-    <!-- ══ WRITE-UPS ════════════════════════════════════════════ -->
-    <section id="writeups" class="tab-panel">
-      <h2 class="panel-head">Write-ups</h2>
-      <p class="panel-sub">Detailed machine writeups, grouped by platform. Active-season boxes are locked until the season closes.</p>
-
-      <div class="wu-cat">
-        <div class="wu-head">▚ HTB Labs <span class="wu-count">retired machines</span></div>
-        <div class="wu-body">
-          <a class="wu-item" href="machines/support.html">
-            <div class="wl"><span>▹</span><div><div class="wtitle">Support</div><div class="wsub">Windows · Easy · anon SMB → decompiled binary → LDAP → RBCD → SYSTEM</div></div></div>
-            <div class="wr">read →</div>
-          </a>
-          <a class="wu-item" href="machines/cctv.html">
-            <div class="wl"><span>▹</span><div><div class="wtitle">CCTV</div><div class="wsub">Linux · Easy · default creds → creds in shell history → forged auth signature</div></div></div>
-            <div class="wr">read →</div>
-          </a>
-          <div class="wu-item locked">
-            <div class="wl"><span>▹</span><div><div class="wtitle">Nexus</div><div class="wsub">Linux · Easy · retired — writeup in progress</div></div></div>
-            <div class="wr">soon</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="wu-cat">
-        <div class="wu-head">◆ TryHackMe <span class="wu-count">writeup + video</span></div>
-        <div class="wu-body">
-          <a class="wu-item" href="machines/thm-relevant.html">
-            <div class="wl"><span>▹</span><div><div class="wtitle">Relevant</div><div class="wsub">Medium · SMB webshell → SeImpersonate → SYSTEM · ▶ video</div></div></div>
-            <div class="wr">read →</div>
-          </a>
-          <a class="wu-item" href="machines/thm-jurassicpark.html">
-            <div class="wl"><span>▹</span><div><div class="wtitle">Jurassic Park</div><div class="wsub">Hard · manual union-based SQL injection · ▶ video</div></div></div>
-            <div class="wr">read →</div>
-          </a>
-          <a class="wu-item" href="machines/thm-kenobi.html">
-            <div class="wl"><span>▹</span><div><div class="wtitle">Kenobi</div><div class="wsub">Easy · ProFTPd mod_copy + NFS → SUID path hijack · ▶ video</div></div></div>
-            <div class="wr">read →</div>
-          </a>
-          <a class="wu-item" href="machines/thm-blue.html">
-            <div class="wl"><span>▹</span><div><div class="wtitle">Blue</div><div class="wsub">Easy · EternalBlue (MS17-010) → SYSTEM · ▶ video</div></div></div>
-            <div class="wr">read →</div>
-          </a>
-        </div>
-      </div>
-
-      <div class="wu-cat locked">
-        <div class="wu-head"><span class="lock">🔒</span> Season 11 — Hack The Box <span class="wu-count">Locked · unlocks when the season ends</span></div>
-        <div class="wu-body">
-          <a class="wu-item" href="machines/makesense.html">
-            <div class="wl"><span>🔒</span><div><div class="wtitle">MakeSense</div><div class="wsub">Linux · Medium · rooted — summary &amp; lessons available, full writeup locked</div></div></div>
-            <div class="wr">preview →</div>
-          </a>
-        </div>
-      </div>
-    </section>
-
-    <!-- ══ VIDEOS ═══════════════════════════════════════════════ -->
-    <section id="videos" class="tab-panel">
-      <h2 class="panel-head">Videos — Techniques &amp; Tutorials</h2>
-      <p class="panel-sub">Technique demos &amp; tutorials from my channel, <b>Lanky's Networking</b>. Room-specific video walkthroughs (Relevant, Jurassic Park, Kenobi, Blue) are linked under <b>Write-ups → TryHackMe</b>.</p>
-      <div class="contact" style="margin-bottom:24px;">
+      <h4 class="lab-h">▶ Technique &amp; Tutorial Videos</h4>
+      <p class="panel-sub" style="margin-bottom:18px;">Non-lab-specific demos from my channel, <b>Lanky's Networking</b>.</p>
+      <div class="contact" style="margin-bottom:22px;">
         <a class="btn primary" href="https://www.youtube.com/@lankysnetworking8923" target="_blank" rel="noopener">▶ Watch on YouTube</a>
       </div>
       <div class="vids">
