@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reactor — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box: Reactor — Easy Linux. Next.js React Server Components RCE → root via exposed Node.js inspector.">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+</head>
+<body>
+  <div class="banner">
+    ◷ <strong>Non-retired box</strong> — full technical writeup publishes once it retires. Summary &amp; lessons below.
+  </div>
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#lab">back to writeups</a>
+    <img class="wu-logo" src="../assets/logos/reactor.png" alt="Reactor logo">
+    <h1 style="margin-top:16px;">Reactor</h1>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Reactor" target="_blank" rel="noopener">app.hackthebox.com/machines/Reactor</a></div>
+    <div class="machine-meta">
+      <span class="pill os-linux">Linux</span>
+      <span class="pill diff-easy">Easy</span>
+      <span class="pill">Next.js RCE</span>
+      <span class="pill flagp">🚩 User</span>
+      <span class="pill flagp">🚩 Root</span>
+      <span class="pill rooted">● Rooted</span>
+      <span class="pill pending">writeup after retire</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">Summary</span>
+      Reactor ran a <strong>Next.js</strong> dashboard ("ReactorWatch") on port 3000. A <strong>React Server
+      Components</strong> deserialization flaw gave remote command execution as <code>node</code>. The app's
+      SQLite database leaked an MD5 password hash that cracked and unlocked SSH. Root came from a
+      <strong>root-owned Node.js process exposing the V8 debug inspector</strong> on localhost — attach a
+      debugger, run code as root.
+    </div>
+
+    <h2><span class="num">01</span>Why the full writeup is held back</h2>
+    <p>
+      Reactor isn't retired yet, so — in line with Hack The Box's guidance on non-retired machines — I'm not
+      publishing a step-by-step reproduction. The complete writeup (recon, the RSC RCE, DB looting &amp; hash
+      cracking, and the inspector privesc, with commands and remediation) goes live here <strong>once it retires</strong>.
+    </p>
+
+    <h2><span class="num">02</span>The interesting bits (no spoilers)</h2>
+    <h3>Modern framework RCE — React Server Components</h3>
+    <p>
+      The foothold wasn't a classic web bug — it was a <strong>server-side deserialization / action-handling flaw
+      in React Server Components</strong> (the "React2Shell" class of issue), triggered through the framework's
+      server-action request handling. A good reminder that new rendering frameworks bring <em>new</em> server-side
+      attack surface, not just client-side.
+    </p>
+    <h3>A debugger left open as root</h3>
+    <p>
+      Privilege escalation came from a root-run Node.js uptime monitor started with <code>--inspect</code>, leaving
+      the <strong>V8 inspector listening on 127.0.0.1:9229</strong>. Anyone who can reach that local port can attach
+      a debugger and execute arbitrary code <em>in the context of the root process</em> — no exploit required.
+    </p>
+
+    <h2><span class="num">03</span>Takeaways</h2>
+    <ul>
+      <li><strong>Treat framework internals as attack surface</strong> — RSC / server actions need the same input-trust scrutiny as any endpoint.</li>
+      <li><strong>Never leave a debug inspector on a privileged process</strong> — <code>--inspect</code> on a root service is remote code execution to anyone on localhost.</li>
+      <li><strong>App databases are credential stores to an attacker</strong> — unsalted MD5 hashes crack instantly; salt + slow hashes, and don't reuse DB passwords for SSH.</li>
+      <li>The same lessons I apply defensively: monitor for debug ports, audit service launch flags, and treat every reachable local port as a trust boundary.</li>
+    </ul>
+
+    <div class="callout todo">
+      <span class="tag">Coming after retirement</span>
+      Full technical walkthrough with the exact RCE chain, DB extraction, cracking, and the inspector-to-root steps.
+    </div>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
+  </article>
+
+  <footer><div class="wrap">Reactor · rooted · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+</body>
+</html>
