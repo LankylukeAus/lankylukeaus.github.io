@@ -324,6 +324,7 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
 .act.lock { color: var(--amber); }
 .act.soon { color: var(--fg-dim); cursor: default; }
 .act.soon:hover { border-color: var(--border); }
+.pill.vidpill { color: #ff6b6b; border-color: rgba(255,107,107,0.4); }
 
 @media (max-width: 760px) {
   .platforms { grid-template-columns: 1fr; }
