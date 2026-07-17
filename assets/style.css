@@ -333,6 +333,18 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
 .room .rlogo { width: 28px; height: 28px; border-radius: 7px; object-fit: cover; flex: 0 0 auto; }
 .pill.flagp { color: var(--green); border-color: var(--green-dim); }
 
+/* Projects */
+.projects { display: grid; grid-template-columns: 1fr; gap: 18px; }
+.proj { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 24px; }
+.proj.feat { background: linear-gradient(160deg, rgba(159,239,0,0.07), var(--bg-card) 60%); border-color: var(--green-dim); }
+.proj-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.proj-name { font-size: 22px; font-weight: 700; color: var(--fg-bright); margin: 0 0 4px; }
+.proj-link { font-family: var(--mono); font-size: 13px; color: var(--green); text-decoration: none; }
+.proj-link:hover { text-decoration: underline; }
+.proj p { color: var(--fg-dim); font-size: 15px; line-height: 1.7; margin: 12px 0; }
+.proj .ptags { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.proj .chip { cursor: default; }
+
 @media (max-width: 760px) {
   .platforms { grid-template-columns: 1fr; }
 }
