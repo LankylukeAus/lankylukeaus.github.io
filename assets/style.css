@@ -326,6 +326,10 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
 .act.soon { color: var(--fg-dim); cursor: default; }
 .act.soon:hover { border-color: var(--border); }
 .pill.vidpill { color: #ff6b6b; border-color: rgba(255,107,107,0.4); }
+.card-logo { width: 42px; height: 42px; border-radius: 10px; object-fit: cover; flex: 0 0 auto; }
+.card .rowl { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.card .rowl h3 { margin: 0; }
+.room .rlogo { width: 28px; height: 28px; border-radius: 7px; object-fit: cover; flex: 0 0 auto; }
 
 @media (max-width: 760px) {
   .platforms { grid-template-columns: 1fr; }
