@@ -89,6 +89,7 @@ header.nav a.link:hover { color: var(--green); }
 
 /* ── Writeup article ───────────────────────────────────────────────── */
 article { padding: 40px 0 96px; }
+.wu-logo { display: block; width: 84px; height: 84px; border-radius: 16px; object-fit: cover; border: 1px solid var(--border); margin: 4px 0 6px; }
 article h1 { font-size: 36px; color: var(--fg-bright); margin: 0 0 6px; }
 article .subtitle { color: var(--fg-dim); font-family: var(--mono); font-size: 14px; margin-bottom: 24px; }
 article .machine-meta { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 32px; }
