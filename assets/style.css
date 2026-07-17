@@ -331,6 +331,7 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
 .card .rowl { display: flex; align-items: center; gap: 11px; min-width: 0; flex: 1 1 auto; }
 .card .rowl h3 { margin: 0; }
 .room .rlogo { width: 28px; height: 28px; border-radius: 7px; object-fit: cover; flex: 0 0 auto; }
+.pill.flagp { color: var(--green); border-color: var(--green-dim); }
 
 @media (max-width: 760px) {
   .platforms { grid-template-columns: 1fr; }
