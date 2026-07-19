@@ -301,6 +301,11 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
 .bcard .bn { color: var(--fg-bright); font-weight: 600; font-size: 13px; margin-top: 11px; line-height: 1.3; }
 .bcard .bm { color: var(--fg-dim); font-family: var(--mono); font-size: 10.5px; margin-top: 4px; line-height: 1.45; }
 .bcard.feat { background: linear-gradient(160deg, rgba(159,239,0,0.09), var(--bg-card) 60%); border-color: var(--green-dim); }
+.bcard { position: relative; }
+.newtag { position: absolute; top: 8px; right: 8px; font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+  letter-spacing: .5px; color: #0b0d14; background: var(--green); padding: 2px 6px; border-radius: 5px; }
+.cert .newtag { top: 14px; right: 14px; }
+.pill.newpill { color: #0b0d14; background: var(--green); border-color: var(--green); font-weight: 700; }
 .bcard.feat img { width: 92px; height: 92px; }
 .dot.def { background: #b388ff; } .rd.def { color: #b388ff; }
 
