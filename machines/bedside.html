@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bedside — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box: Bedside — Medium Linux. pdfminer pickle RCE → container pivot → PyTorch checkpoint deserialization to root.">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+</head>
+<body>
+  <div class="banner">
+    ◷ <strong>Active Season 11 box</strong> — full technical writeup publishes once the season closes. Summary &amp; lessons below.
+  </div>
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#lab">back to writeups</a>
+    <img class="wu-logo" src="../assets/logos/bedside.png" alt="Bedside logo">
+    <h1 style="margin-top:16px;">Bedside</h1>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Bedside" target="_blank" rel="noopener">app.hackthebox.com/machines/Bedside</a></div>
+    <div class="machine-meta">
+      <span class="pill os-linux">Linux</span>
+      <span class="pill diff-medium">Medium</span>
+      <span class="pill season">Season 11</span>
+      <span class="pill">Deserialization · Container pivot</span>
+      <span class="pill flagp">🚩 User</span>
+      <span class="pill flagp">🚩 Root</span>
+      <span class="pill rooted">● Completed</span>
+      <span class="pill pending">writeup after season</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">Summary</span>
+      A medical-research-themed Linux target. A hidden research virtual host exposed an unauthenticated upload that
+      fed a vulnerable <strong>pdfminer.six</strong> worker — a crafted PDF triggered <strong>unsafe pickle
+      deserialization</strong> for a shell as <code>datawrangler</code> inside a container. An internal ESM service
+      leaked the <code>developer</code> SSH key via <strong>path traversal</strong>, and that account's
+      <strong>sudo-run PyTorch trainer loaded an attacker-controlled checkpoint</strong> — a second unsafe
+      deserialization — for <strong>root</strong>.
+    </div>
+
+    <h2><span class="num">01</span>Why the full writeup is held back</h2>
+    <p>
+      Bedside is a live <strong>Season 11</strong> machine, so — in line with Hack The Box's guidance on active
+      machines — I'm not publishing a step-by-step reproduction. The complete writeup (vhost discovery, the pdfminer
+      pickle RCE, the container pivot / ESM traversal, and the PyTorch-checkpoint privesc, with commands and
+      remediation) goes live here <strong>once the season closes</strong>.
+    </p>
+
+    <h2><span class="num">02</span>The interesting bits (no spoilers)</h2>
+    <h3>Deserialization, twice — pickle then PyTorch</h3>
+    <p>
+      Both the foothold and root came from the same root cause in two forms: <strong>unsafe deserialization</strong>.
+      First a malicious <strong>pickle</strong> delivered through a PDF that <code>pdfminer.six</code> processed;
+      then a malicious <strong>PyTorch checkpoint</strong> loaded by a trusted training script. "Loading" untrusted
+      data is executing it.
+    </p>
+    <h3>Container isolation that wasn't</h3>
+    <p>
+      The initial shell landed <strong>inside a container</strong>, but an internal development service was reachable
+      from it and <strong>path-traversal on that service leaked host files</strong> — including an SSH private key.
+      A reminder that a container boundary is only as strong as what it can still talk to.
+    </p>
+
+    <h2><span class="num">03</span>Takeaways</h2>
+    <ul>
+      <li><strong>Never deserialize untrusted input</strong> — <code>pickle</code> and <code>torch.load</code> both execute code; use safe formats / <code>weights_only</code>.</li>
+      <li><strong>Fuzz for virtual hosts</strong> — the whole chain started with an unadvertised <code>research.</code> vhost.</li>
+      <li><strong>Containers aren't a security boundary by themselves</strong> — audit what internal services a compromised container can reach.</li>
+      <li><strong>Sudo rules that load data are dangerous</strong> — a "safe" script becomes RCE when it consumes attacker-controlled files.</li>
+    </ul>
+
+    <div class="callout todo">
+      <span class="tag">Coming after Season 11</span>
+      Full technical walkthrough with the vhost discovery, pdfminer pickle RCE, ESM path traversal, and the PyTorch-checkpoint-to-root chain.
+    </div>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
+  </article>
+
+  <footer><div class="wrap">Bedside · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+</body>
+</html>

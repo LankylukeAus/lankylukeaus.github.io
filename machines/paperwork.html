@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paperwork — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box: Paperwork — Easy Linux. LPD command injection → PJL traversal → SSH key injection → root via a leaked privileged file descriptor.">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+</head>
+<body>
+  <div class="banner">
+    ◷ <strong>Active Season 11 box</strong> — full technical writeup publishes once the season closes. Summary &amp; lessons below.
+  </div>
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#lab">back to writeups</a>
+    <img class="wu-logo" src="../assets/logos/paperwork.png" alt="Paperwork logo">
+    <h1 style="margin-top:16px;">Paperwork</h1>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Paperwork" target="_blank" rel="noopener">app.hackthebox.com/machines/Paperwork</a></div>
+    <div class="machine-meta">
+      <span class="pill os-linux">Linux</span>
+      <span class="pill diff-easy">Easy</span>
+      <span class="pill season">Season 11</span>
+      <span class="pill">LPD · PJL · SCM_RIGHTS</span>
+      <span class="pill flagp">🚩 User</span>
+      <span class="pill flagp">🚩 Root</span>
+      <span class="pill rooted">● Completed</span>
+      <span class="pill pending">writeup after season</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">Summary</span>
+      A Linux box built around <strong>insecure custom printing services</strong>, compromised by chaining four
+      distinct trust-boundary failures: <strong>command injection in a custom LPD</strong> service (shell as
+      <code>lp</code>) → an internal <strong>PJL/JetDirect</strong> service allowing arbitrary file read/write via
+      path traversal (used to inject an SSH key as <code>archivist</code>) → a root daemon that
+      <strong>leaks an already-open privileged file descriptor over a Unix socket</strong>, exposing a reused
+      administrator password → <strong>root</strong>.
+    </div>
+
+    <h2><span class="num">01</span>Why the full writeup is held back</h2>
+    <p>
+      Paperwork is a live <strong>Season 11</strong> machine, so — in line with Hack The Box's guidance on active
+      machines — I'm not publishing a step-by-step reproduction. The complete writeup (LPD injection, PJL traversal,
+      SSH key injection and the descriptor-leak privesc, with commands and remediation) goes live here
+      <strong>once the season closes</strong>.
+    </p>
+
+    <h2><span class="num">02</span>The interesting bits (no spoilers)</h2>
+    <h3>Command injection in a bespoke print daemon</h3>
+    <p>
+      The foothold wasn't an off-the-shelf CVE — it was <strong>shell command construction inside a custom Line
+      Printer Daemon</strong>, where a print-job field flowed unsanitised into a system command. Custom network
+      services are where the interesting bugs hide.
+    </p>
+    <h3>The rarely-seen one: leaking a privileged file descriptor</h3>
+    <p>
+      The privilege escalation is the standout — a root-owned management daemon passed an <strong>already-opened,
+      root-privileged file descriptor to a client over a Unix socket via <code>SCM_RIGHTS</code></strong>. Receiving
+      that descriptor gave read access to a file the user could never open directly; it held an admin password that
+      was reused for root. A genuinely uncommon primitive to see in the wild.
+    </p>
+
+    <h2><span class="num">03</span>Takeaways</h2>
+    <ul>
+      <li><strong>Never build shell commands from untrusted input</strong> — even in "internal" services like a print daemon.</li>
+      <li><strong>Path handling in PJL/JetDirect is a real read/write primitive</strong> — printers and their protocols are attack surface.</li>
+      <li><strong>Passing file descriptors with <code>SCM_RIGHTS</code> bypasses file permissions</strong> — the receiver inherits the sender's access; scope it tightly.</li>
+      <li><strong>Password reuse turns any leak into full compromise</strong> — the whole chain collapsed on one reused admin password.</li>
+    </ul>
+
+    <div class="callout todo">
+      <span class="tag">Coming after Season 11</span>
+      Full technical walkthrough with the exact LPD injection, PJL traversal, SSH key injection, and the SCM_RIGHTS descriptor-leak-to-root chain.
+    </div>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
+  </article>
+
+  <footer><div class="wrap">Paperwork · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+</body>
+</html>
