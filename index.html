@@ -125,10 +125,10 @@
         <div class="bcard"><img src="assets/badges/explore-deep-space.png" alt="Explore deep space badge"><div class="bn">Explore deep space</div><div class="bm">Pivoting &amp; Tunneling</div></div>
         <div class="bcard"><img src="assets/badges/tactical.png" alt="Tactical badge"><div class="bn">Tactical</div><div class="bm">Penetration Testing Process</div></div>
         <div class="bcard"><img src="assets/badges/academician.png" alt="Academician badge"><div class="bn">Academician</div><div class="bm">Introduction to Academy</div></div>
-        <div class="bcard"><span class="newtag">NEW</span><img src="assets/badges/sql-injection-fundamentals.png" alt="SQL Injection Fundamentals badge"><div class="bn">DROP your weapon</div><div class="bm">SQL Injection Fundamentals</div></div>
-        <div class="bcard"><span class="newtag">NEW</span><img src="assets/badges/sqlmap-essentials.png" alt="SQLMap Essentials badge"><div class="bn">JOIN the adventure</div><div class="bm">SQLMap Essentials</div></div>
-        <div class="bcard"><span class="newtag">NEW</span><img src="assets/badges/xss.png" alt="XSS badge"><div class="bn">Included in every report</div><div class="bm">Cross-Site Scripting (XSS)</div></div>
-        <div class="bcard"><span class="newtag">NEW</span><img src="assets/badges/file-inclusion.png" alt="File Inclusion badge"><div class="bn">Every road leads to root</div><div class="bm">File Inclusion</div></div>
+        <div class="bcard"><span class="newtag" data-added="2026-07-13">NEW</span><img src="assets/badges/sql-injection-fundamentals.png" alt="SQL Injection Fundamentals badge"><div class="bn">DROP your weapon</div><div class="bm">SQL Injection Fundamentals</div></div>
+        <div class="bcard"><span class="newtag" data-added="2026-07-13">NEW</span><img src="assets/badges/sqlmap-essentials.png" alt="SQLMap Essentials badge"><div class="bn">JOIN the adventure</div><div class="bm">SQLMap Essentials</div></div>
+        <div class="bcard"><span class="newtag" data-added="2026-07-13">NEW</span><img src="assets/badges/xss.png" alt="XSS badge"><div class="bn">Included in every report</div><div class="bm">Cross-Site Scripting (XSS)</div></div>
+        <div class="bcard"><span class="newtag" data-added="2026-07-13">NEW</span><img src="assets/badges/file-inclusion.png" alt="File Inclusion badge"><div class="bn">Every road leads to root</div><div class="bm">File Inclusion</div></div>
       </div>
 
       <div class="badge-sub">Defensive / SOC modules · 14</div>
@@ -243,10 +243,10 @@
           <div class="meta"><span class="pill os-linux">Linux</span><span class="pill diff-medium">Medium</span><span class="pill season">Season 11</span><span class="pill flagp">🚩 User</span><span class="pill flagp">🚩 Root</span><span class="pill pending">writeup after season</span></div></a>
         <a class="card" href="machines/reactor.html"><div class="row"><div class="rowl"><img class="card-logo" src="assets/logos/reactor.png" alt=""><h3>Reactor</h3></div><span class="pill rooted">● Completed</span></div>
           <p>Next.js React Server Components RCE → root via an exposed Node.js inspector.</p>
-          <div class="meta"><span class="pill newpill">just completed</span><span class="pill os-linux">Linux</span><span class="pill diff-easy">Easy</span><span class="pill season">Season 11</span><span class="pill flagp">🚩 User</span><span class="pill flagp">🚩 Root</span><span class="pill pending">writeup after season</span></div></a>
+          <div class="meta"><span class="pill newpill" data-added="2026-07-13">just completed</span><span class="pill os-linux">Linux</span><span class="pill diff-easy">Easy</span><span class="pill season">Season 11</span><span class="pill flagp">🚩 User</span><span class="pill flagp">🚩 Root</span><span class="pill pending">writeup after season</span></div></a>
         <a class="card" href="machines/connected.html"><div class="row"><div class="rowl"><img class="card-logo" src="assets/logos/connected.png" alt=""><h3>Connected</h3></div><span class="pill rooted">● Completed</span></div>
           <p>FreePBX CVE-2025-57819 → root via an incron / sysadmin signed-hook chain.</p>
-          <div class="meta"><span class="pill newpill">just completed</span><span class="pill os-linux">Linux</span><span class="pill diff-easy">Easy</span><span class="pill season">Season 11</span><span class="pill flagp">🚩 User</span><span class="pill flagp">🚩 Root</span><span class="pill pending">writeup after season</span></div></a>
+          <div class="meta"><span class="pill newpill" data-added="2026-07-13">just completed</span><span class="pill os-linux">Linux</span><span class="pill diff-easy">Easy</span><span class="pill season">Season 11</span><span class="pill flagp">🚩 User</span><span class="pill flagp">🚩 Root</span><span class="pill pending">writeup after season</span></div></a>
         <a class="card" href="machines/support.html"><div class="row"><div class="rowl"><img class="card-logo" src="assets/logos/support.png" alt=""><h3>Support</h3></div><span class="pill rooted">● Completed</span></div>
           <p>Anon SMB → decompiled binary → LDAP → RBCD → SYSTEM.</p>
           <div class="meta"><span class="pill" style="color:var(--cyan);border-color:rgba(46,230,214,0.35)">Windows</span><span class="pill diff-easy">Easy</span><span class="pill flagp">🚩 User</span><span class="pill flagp">🚩 Root</span><span class="pill">read →</span></div></a>
@@ -396,6 +396,15 @@
         window.scrollTo({ top: 0 });
       }));
       show((location.hash || '#profile').slice(1));
+    })();
+
+    // NEW / "just completed" tags auto-expire 14 days after their data-added date
+    (function () {
+      var now = Date.now(), maxAge = 14 * 24 * 60 * 60 * 1000;
+      document.querySelectorAll('[data-added]').forEach(function (el) {
+        var t = Date.parse(el.getAttribute('data-added'));
+        if (!isNaN(t) && (now - t) > maxAge) el.style.display = 'none';
+      });
     })();
   </script>
 </body>
