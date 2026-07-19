@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connected — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box: Connected — Easy Linux. FreePBX CVE-2025-57819 → root via an incron / sysadmin hook chain.">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+</head>
+<body>
+  <div class="banner">
+    ◷ <strong>Non-retired box</strong> — full technical writeup publishes once it retires. Summary &amp; lessons below.
+  </div>
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#lab">back to writeups</a>
+    <img class="wu-logo" src="../assets/logos/connected.png" alt="Connected logo">
+    <h1 style="margin-top:16px;">Connected</h1>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Connected" target="_blank" rel="noopener">app.hackthebox.com/machines/Connected</a></div>
+    <div class="machine-meta">
+      <span class="pill os-linux">Linux</span>
+      <span class="pill diff-easy">Easy</span>
+      <span class="pill">FreePBX · CVE-2025-57819</span>
+      <span class="pill flagp">🚩 User</span>
+      <span class="pill flagp">🚩 Root</span>
+      <span class="pill rooted">● Rooted</span>
+      <span class="pill pending">writeup after retire</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">Summary</span>
+      A <strong>FreePBX</strong> box (Apache / CentOS). The foothold was <strong>CVE-2025-57819</strong>, a recent
+      FreePBX vulnerability that dropped a PHP webshell and gave a reverse shell as the <code>asterisk</code> user.
+      Root came from an <strong>incron / sysadmin hook chain</strong>: a writable local trigger directory caused
+      <code>sysadmin_manager</code> to execute a <strong>signed FreePBX firewall hook as root</strong>.
+    </div>
+
+    <h2><span class="num">01</span>Why the full writeup is held back</h2>
+    <p>
+      Connected isn't retired yet, so — in line with Hack The Box's guidance on non-retired machines — I'm not
+      publishing a step-by-step reproduction. The complete writeup (recon, the FreePBX CVE foothold, and the
+      hook-chain privilege escalation, with commands and remediation) goes live here <strong>once it retires</strong>.
+    </p>
+
+    <h2><span class="num">02</span>The interesting bits (no spoilers)</h2>
+    <h3>A fresh CVE in the wild — FreePBX CVE-2025-57819</h3>
+    <p>
+      Rather than a dated exploit, the foothold used a <strong>recently-disclosed FreePBX vulnerability</strong>
+      to plant a webshell and land a reverse shell as the telephony service account. A reminder that internet-facing
+      PBX / VoIP appliances are a real attack surface and need the same patch discipline as everything else.
+    </p>
+    <h3>Root through a signed-hook trust chain</h3>
+    <p>
+      Privilege escalation abused an <strong>incron-watched trigger directory</strong> that a root helper
+      (<code>sysadmin_manager</code>) acted on — it executed a <em>signed</em> FreePBX firewall hook as root. When a
+      privileged process trusts and runs content from a location a lower-privileged user can write to, the signing
+      doesn't save you.
+    </p>
+
+    <h2><span class="num">03</span>Takeaways</h2>
+    <ul>
+      <li><strong>Patch appliances, not just servers</strong> — FreePBX/Asterisk are exposed services; CVE-2025-57819 is a live example.</li>
+      <li><strong>Watch trigger directories</strong> — incron/cron/hook mechanisms that act on user-writable paths are a classic privesc primitive.</li>
+      <li><strong>A signature isn't authorization</strong> — a root process trusting a writable input location breaks the whole chain.</li>
+      <li>Straight into the day job: monitor for suspicious hook execution, and audit who can write to anything a privileged service consumes.</li>
+    </ul>
+
+    <div class="callout todo">
+      <span class="tag">Coming after retirement</span>
+      Full technical walkthrough with the exact CVE foothold, webshell, reverse shell, and the incron/hook-to-root chain.
+    </div>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
+  </article>
+
+  <footer><div class="wrap">Connected · rooted · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+</body>
+</html>
