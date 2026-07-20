@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Media Server — Project (Lanky)</title>
+  <meta name="description" content="A self-hosted Jellyfin media platform with the *arr automation suite, all download traffic forced through a gluetun VPN kill-switch.">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127916;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#projects">← all projects</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#projects">back to projects</a>
+    <h1 style="margin-top:16px;">🎬 Media Server — automated &amp; VPN-gated</h1>
+    <div class="subtitle">Jellyfin + *arr suite behind a gluetun VPN kill-switch</div>
+    <div class="machine-meta">
+      <span class="pill">Jellyfin</span>
+      <span class="pill">Sonarr / Radarr</span>
+      <span class="pill">Prowlarr</span>
+      <span class="pill">gluetun VPN</span>
+      <span class="pill flagp">● running</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">Summary</span>
+      A self-hosted <strong>media platform</strong> — <strong>Jellyfin</strong> for streaming with the
+      <strong>*arr</strong> automation suite (Sonarr, Radarr, Prowlarr, Jellyseerr) managing the library and requests.
+      The interesting part is the networking: all download traffic is forced through a <strong>gluetun VPN container
+      with a kill-switch</strong>, so if the tunnel drops, nothing routes.
+    </div>
+
+    <h2><span class="num">01</span>What it does &amp; the networking</h2>
+    <p>
+      Jellyfin serves the media library to any device. Prowlarr manages indexers, Sonarr and Radarr handle TV and film
+      automatically, and Jellyseerr gives a friendly "request a title" front end. The download client runs with its
+      network routed <em>entirely through</em> the gluetun container (<code>network_mode: service:gluetun</code>) — so
+      its only path to the internet is the VPN tunnel. Gluetun's firewall is configured to <strong>drop all traffic if
+      the VPN goes down</strong> (a kill-switch), which is the real engineering lesson here: enforcing an egress path
+      at the container-network level rather than trusting an app setting.
+    </p>
+
+    <h2><span class="num">02</span>Components &amp; programs involved</h2>
+    <div class="stack-wrap">
+    <table class="stack">
+      <thead><tr><th>Component</th><th>Image</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td>gluetun</td><td><code>qmcgaw/gluetun</code></td><td>VPN client + firewall kill-switch; every download-side container routes through it.</td></tr>
+        <tr><td>Jellyfin</td><td><code>jellyfin/jellyfin</code></td><td>Media server / streaming front end (8096).</td></tr>
+        <tr><td>Prowlarr</td><td><code>linuxserver/prowlarr</code></td><td>Indexer manager feeding Sonarr &amp; Radarr (9696).</td></tr>
+        <tr><td>Sonarr / Radarr</td><td><code>linuxserver/sonarr</code>, <code>radarr</code></td><td>Automated TV (8989) and film (7878) library management.</td></tr>
+        <tr><td>Jellyseerr</td><td><code>seerr</code></td><td>Request &amp; discovery front end for users (5055).</td></tr>
+        <tr><td>FlareSolverr</td><td><code>flaresolverr</code></td><td>Solves Cloudflare challenges for indexers (8191).</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2><span class="num">03</span>Why I built it &amp; skills shown</h2>
+    <ul>
+      <li><strong>Container networking</strong> — routing one container's whole network through another and enforcing a VPN-only egress path.</li>
+      <li><strong>Kill-switch / fail-closed design</strong> — traffic stops if the tunnel drops, rather than leaking.</li>
+      <li><strong>Service orchestration</strong> — half a dozen interdependent services wired together with health &amp; dependency ordering.</li>
+      <li><strong>Self-hosting</strong> — replacing multiple SaaS subscriptions with one maintained stack.</li>
+    </ul>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#projects">back to projects</a></p>
+  </article>
+
+  <footer><div class="wrap">Media Server · project · Lanky &nbsp;·&nbsp; <a href="../index.html#projects">all projects</a></div></footer>
+</body>
+</html>

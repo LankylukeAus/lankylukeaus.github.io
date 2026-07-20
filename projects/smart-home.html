@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart Home — Project (Lanky)</title>
+  <meta name="description" content="A locally-controlled smart home on Home Assistant, bridging Matter, Zigbee and MQTT devices — no vendor clouds.">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127968;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#projects">← all projects</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#projects">back to projects</a>
+    <h1 style="margin-top:16px;">🏠 Smart Home — Home Assistant</h1>
+    <div class="subtitle">Locally-controlled home automation · Matter · Zigbee · MQTT</div>
+    <div class="machine-meta">
+      <span class="pill">Home Assistant</span>
+      <span class="pill">Matter</span>
+      <span class="pill">Zigbee2MQTT</span>
+      <span class="pill">MQTT</span>
+      <span class="pill flagp">● running</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">Summary</span>
+      A <strong>locally-controlled smart-home platform</strong> built on <strong>Home Assistant</strong>, bridging
+      <strong>Matter</strong>, <strong>Zigbee</strong> and <strong>MQTT</strong> devices through a Mosquitto broker.
+      Automations, dashboards and app control — all kept on-network rather than dependent on vendor clouds.
+    </div>
+
+    <h2><span class="num">01</span>What it does</h2>
+    <p>
+      Home Assistant is the hub: it discovers devices, runs automations and serves the dashboards. Rather than trust a
+      pile of separate vendor apps and clouds, everything is normalised onto local protocols — Zigbee sensors and
+      globes come in over a USB radio via Zigbee2MQTT, Matter devices via a local Matter server, and Govee lighting is
+      bridged to MQTT — so the home keeps working even if the internet drops, and remote access rides the lab's
+      existing Cloudflare Tunnel.
+    </p>
+
+    <h2><span class="num">02</span>Components &amp; programs involved</h2>
+    <div class="stack-wrap">
+    <table class="stack">
+      <thead><tr><th>Component</th><th>Image</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td>Home Assistant</td><td><code>home-assistant:stable</code></td><td>The automation hub &amp; dashboard (host networking, USB radio access).</td></tr>
+        <tr><td>Mosquitto</td><td><code>eclipse-mosquitto</code></td><td>MQTT broker — the common message bus for devices (1883 / 9001).</td></tr>
+        <tr><td>Zigbee2MQTT</td><td><code>koenkk/zigbee2mqtt</code></td><td>Bridges Zigbee devices onto MQTT via a USB coordinator.</td></tr>
+        <tr><td>Matter server</td><td><code>python-matter-server</code></td><td>Local controller for Matter/Thread devices.</td></tr>
+        <tr><td>Matter Hub</td><td><code>home-assistant-matter-hub</code></td><td>Exposes HA entities back out as Matter devices.</td></tr>
+        <tr><td>Govee2MQTT</td><td><code>wez/govee2mqtt</code></td><td>Bridges Govee lighting into MQTT / Home Assistant.</td></tr>
+        <tr><td>Cloudflare Tunnel</td><td><code>cloudflared</code></td><td>Secure remote access to the HA UI with no open ports.</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2><span class="num">03</span>Why I built it &amp; skills shown</h2>
+    <ul>
+      <li><strong>Systems integration</strong> — unifying several protocols (Matter, Zigbee, MQTT) and vendors into one local platform.</li>
+      <li><strong>Local-first &amp; privacy</strong> — cloud-independent control that keeps working offline.</li>
+      <li><strong>IoT &amp; messaging</strong> — hands-on with MQTT brokering and device bridging.</li>
+      <li><strong>Automation</strong> — event-driven rules across sensors, lighting and presence.</li>
+    </ul>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#projects">back to projects</a></p>
+  </article>
+
+  <footer><div class="wrap">Smart Home · project · Lanky &nbsp;·&nbsp; <a href="../index.html#projects">all projects</a></div></footer>
+</body>
+</html>

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Australian Homestead — Project (Lanky)</title>
+  <meta name="description" content="A self-hosted WordPress site on a containerised Nginx / PHP / MariaDB stack, published via Cloudflare Tunnel.">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127793;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#projects">← all projects</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#projects">back to projects</a>
+    <h1 style="margin-top:16px;">🌱 Australian Homestead</h1>
+    <div class="subtitle">Self-hosted WordPress site · <a href="https://australianhomestead.com/" target="_blank" rel="noopener">australianhomestead.com ↗</a></div>
+    <div class="machine-meta">
+      <span class="pill">WordPress</span>
+      <span class="pill">Nginx</span>
+      <span class="pill">MariaDB</span>
+      <span class="pill">PHP 8.3</span>
+      <span class="pill flagp">● live</span>
+    </div>
+
+    <div class="contact" style="margin:0 0 22px;">
+      <a class="btn primary" href="https://australianhomestead.com/" target="_blank" rel="noopener">▸ Visit australianhomestead.com ↗</a>
+    </div>
+
+    <div class="callout">
+      <span class="tag">Summary</span>
+      A self-hosted <strong>WordPress site</strong> on a containerised stack — WordPress on <strong>PHP 8.3</strong>
+      with an <strong>Nginx</strong> front end and a <strong>MariaDB</strong> backend, deployed with Docker Compose and
+      published through the same reverse-proxy / Cloudflare Tunnel setup as the rest of the lab.
+    </div>
+
+    <h2><span class="num">01</span>What it does</h2>
+    <p>
+      A real, publicly-reachable content site that I own end-to-end — from the container stack up to the domain. Rather
+      than pay for managed hosting, it runs on my own server: Nginx serves and caches in front, WordPress/PHP handles
+      the application, MariaDB stores the content, and a WordPress-CLI container handles setup and maintenance tasks.
+      It's published the same secure way as everything else here — no open inbound ports, TLS at the edge.
+    </p>
+
+    <h2><span class="num">02</span>Components &amp; programs involved</h2>
+    <div class="stack-wrap">
+    <table class="stack">
+      <thead><tr><th>Component</th><th>Image</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td>WordPress</td><td><code>wordpress:6.8.1-php8.3-apache</code></td><td>The CMS / application layer (PHP 8.3).</td></tr>
+        <tr><td>Nginx</td><td><code>nginx:1.27-alpine</code></td><td>Front-end web server / cache in front of WordPress.</td></tr>
+        <tr><td>MariaDB</td><td><code>mariadb:11.4</code></td><td>Database backing the site's content and config.</td></tr>
+        <tr><td>WP-CLI</td><td><code>wordpress:cli</code></td><td>Command-line container for install, config &amp; maintenance tasks.</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2><span class="num">03</span>Why I built it &amp; skills shown</h2>
+    <ul>
+      <li><strong>Web hosting end-to-end</strong> — running a production WordPress site on my own infrastructure, domain to database.</li>
+      <li><strong>The classic web stack</strong> — Nginx + PHP + MariaDB, containerised and reproducible.</li>
+      <li><strong>Secure publishing</strong> — TLS at the edge and tunnel-based ingress, consistent with the rest of the lab.</li>
+    </ul>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#projects">back to projects</a></p>
+  </article>
+
+  <footer><div class="wrap">Australian Homestead · project · Lanky &nbsp;·&nbsp; <a href="../index.html#projects">all projects</a></div></footer>
+</body>
+</html>

@@ -349,6 +349,17 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
 .proj p { color: var(--fg-dim); font-size: 15px; line-height: 1.7; margin: 12px 0; }
 .proj .ptags { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
 .proj .chip { cursor: default; }
+.proj .btn.detail { border-color: var(--green-dim); color: var(--green); }
+
+/* ── project detail pages ─────────────────────────────── */
+.stack-wrap { overflow-x: auto; margin: 16px 0; }
+.stack { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 480px; }
+.stack th, .stack td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.stack th { color: var(--fg-bright); font-family: var(--mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+.stack td:first-child { color: var(--fg-bright); font-weight: 600; white-space: nowrap; }
+.stack td code, .stack th code { font-family: var(--mono); font-size: 12.5px; color: var(--green); }
+.stack tr:last-child td { border-bottom: none; }
+.stack td:nth-child(2) { color: var(--fg-dim); }
 
 @media (max-width: 760px) {
   .platforms { grid-template-columns: 1fr; }
