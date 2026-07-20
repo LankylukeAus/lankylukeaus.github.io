@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Family-Safe Internet — Project (Lanky)</title>
+  <meta name="description" content="Defense-in-depth for a child's device: Pi-hole + family-safe DNS at home, and an always-on WireGuard VPN so the same filtering follows the device away from home.">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128737;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#projects">← all projects</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#projects">back to projects</a>
+    <h1 style="margin-top:16px;">🛡️ Family-Safe Internet — home &amp; away</h1>
+    <div class="subtitle">Defense-in-depth for a child's device · filtered at home, protected everywhere</div>
+    <div class="machine-meta">
+      <span class="pill">Pi-hole</span>
+      <span class="pill">WireGuard</span>
+      <span class="pill">Cloudflare for Families</span>
+      <span class="pill">Dynamic DNS</span>
+      <span class="pill" style="color:var(--amber);border-color:rgba(240,180,0,0.35)">◐ in progress</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">The goal</span>
+      Make sure my kid's device has <strong>safe, filtered internet wherever it is</strong> — the same protection on
+      home Wi-Fi as out on mobile data. At home, a <strong>Pi-hole</strong> plus <strong>family-safe DNS</strong>
+      blocks ads, trackers, malware and adult content for the whole network. Away from home, an always-on
+      <strong>WireGuard</strong> VPN carries the device back home so it inherits exactly the same filtering — no gaps
+      the moment they leave the house.
+    </div>
+
+    <h2><span class="num">01</span>Why I'm building it</h2>
+    <p>
+      Content filters that only live on the home router stop working the instant a device leaves the Wi-Fi — on mobile
+      data a phone or tablet is wide open. I wanted <strong>one consistent layer of protection that travels with the
+      device</strong>, without relying on a paid third-party app that can be uninstalled or bypassed. The whole thing
+      runs on my own infrastructure, so I control the policy and nothing about my kid's browsing is handed to an
+      external service.
+    </p>
+
+    <h2><span class="num">02</span>How it works — two layers</h2>
+    <h3>At home — filter the whole network</h3>
+    <p>
+      Every device on the home network resolves DNS through a <strong>Pi-hole</strong>, which sinkholes ad, tracker and
+      known-malware domains. Pi-hole's upstream is set to <strong>Cloudflare's family resolver (1.1.1.3)</strong>,
+      which additionally blocks malware <em>and</em> adult content at the DNS level. Together that's a solid,
+      low-maintenance safety net for anything on the LAN.
+    </p>
+    <h3>Away from home — bring the device back to that network</h3>
+    <p>
+      The trick for "away" is simple in concept: put the device on the home network no matter where it physically is.
+      An <strong>always-on WireGuard tunnel</strong> routes <em>all</em> of the device's traffic back home, where it
+      exits through the same Pi-hole + family-DNS filtering. To the internet the device looks like it's sitting on the
+      home LAN; to my kid it just works; and the protection is identical to being at home.
+    </p>
+
+    <h2><span class="num">03</span>Step 1 — getting the VPN back to home working</h2>
+    <p>
+      Everything above depends on one foundation: a device out in the world being able to <strong>reliably reach
+      home</strong>. If the tunnel home isn't rock-solid, the away-from-home filtering simply doesn't happen. So step 1
+      was building — and hardening — that path.
+    </p>
+    <h3>The VPN server</h3>
+    <p>
+      A <strong>WireGuard</strong> server runs in a container on my home lab, listening on its own UDP port. WireGuard
+      is the right tool here: it's modern, fast, and <strong>key-based</strong> — each device is its own peer with its
+      own keypair, so nothing connects without an explicitly authorised key. The child's device becomes one locked-down
+      peer.
+    </p>
+    <h3>The problem that actually broke it: a moving address</h3>
+    <p>
+      A device away from home has to <em>dial</em> the server by address — but my home internet (Starlink) hands out a
+      <strong>dynamic public IP that changes without warning</strong>. When it changed, the VPN's hostname was still
+      pointing at the <em>old</em> IP, so the device was dialling an address that was no longer my house. The tunnel
+      silently failed and never completed a handshake. That's the classic failure mode for self-hosted remote access —
+      and exactly what I had to solve to make this dependable.
+    </p>
+    <h3>The fix: a self-healing address</h3>
+    <p>
+      I built a <strong>dynamic-DNS updater</strong>: a small script on the server checks the home's real public IP
+      every few minutes and, whenever it changes, automatically updates the VPN hostname's DNS record to match. It
+      runs on a scheduled timer, reads its API credentials from a protected secrets file (never hard-coded), and keeps
+      the record <strong>DNS-only</strong> so WireGuard's UDP traffic isn't interfered with. The result is a
+      <strong>stable name that always resolves to home</strong>, even as the ISP shuffles our IP — so the tunnel comes
+      back on its own instead of breaking every time.
+    </p>
+    <div class="callout">
+      <span class="tag">Outcome of step 1</span>
+      A dependable, self-healing route home: an authorised device can reach the WireGuard server from anywhere, the
+      connection survives dynamic-IP changes, and it's all key-based and locked down. That's the platform the rest of
+      the project is built on.
+    </div>
+
+    <h2><span class="num">04</span>The roadmap from here</h2>
+    <ul>
+      <li><strong>Step 2 — enrol the child's device</strong> as a WireGuard peer with its own key, set to <em>always-on / on-demand</em> so the protection can't simply be switched off.</li>
+      <li><strong>Step 3 — force all traffic + DNS through home</strong> (full-tunnel), so every request — not just web browsing — is filtered by Pi-hole and the family resolver.</li>
+      <li><strong>Step 4 — verify away-from-home</strong>: confirm that on mobile data, ad/tracker/malware and adult-content domains are actually blocked, matching the home experience.</li>
+      <li><strong>Step 5 — per-device policy</strong>: a dedicated Pi-hole group for the kid's device with a stricter blocklist, and optionally time-of-day rules.</li>
+    </ul>
+
+    <h2><span class="num">05</span>Skills &amp; why it matters</h2>
+    <ul>
+      <li><strong>Defense-in-depth</strong> — layering DNS filtering and a transport VPN so protection isn't tied to one location.</li>
+      <li><strong>Networking &amp; VPNs</strong> — WireGuard server, key-based peers, full-tunnel routing and NAT/port-forwarding.</li>
+      <li><strong>DNS security</strong> — sinkholing and safe upstream resolvers as a practical control.</li>
+      <li><strong>Resilience engineering</strong> — solving the dynamic-IP failure mode with automated, self-healing dynamic DNS.</li>
+      <li><strong>Privacy by design</strong> — the whole solution runs on my own hardware; no child's browsing data goes to a third party.</li>
+    </ul>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#projects">back to projects</a></p>
+  </article>
+
+  <footer><div class="wrap">Family-Safe Internet · project · Lanky &nbsp;·&nbsp; <a href="../index.html#projects">all projects</a></div></footer>
+</body>
+</html>
