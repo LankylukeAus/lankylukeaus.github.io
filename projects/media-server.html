@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Media Server — Project (Lanky)</title>
-  <meta name="description" content="A self-hosted Jellyfin media platform with the *arr automation suite, all download traffic forced through a gluetun VPN kill-switch.">
+  <meta name="description" content="A self-hosted Jellyfin media streaming server with GPU transcoding and a Jellyseerr request front end.">
   <link rel="stylesheet" href="../assets/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127916;</text></svg>">
 </head>
@@ -18,32 +18,30 @@
 
   <article class="wrap">
     <a class="back" href="../index.html#projects">back to projects</a>
-    <h1 style="margin-top:16px;">🎬 Media Server — automated &amp; VPN-gated</h1>
-    <div class="subtitle">Jellyfin + *arr suite behind a gluetun VPN kill-switch</div>
+    <h1 style="margin-top:16px;">🎬 Media Server — self-hosted streaming</h1>
+    <div class="subtitle">Jellyfin streaming with GPU transcoding · Jellyseerr requests</div>
     <div class="machine-meta">
       <span class="pill">Jellyfin</span>
-      <span class="pill">Sonarr / Radarr</span>
-      <span class="pill">Prowlarr</span>
-      <span class="pill">gluetun VPN</span>
+      <span class="pill">Jellyseerr</span>
+      <span class="pill">GPU transcoding</span>
+      <span class="pill">Self-hosted</span>
       <span class="pill flagp">● running</span>
     </div>
 
     <div class="callout">
       <span class="tag">Summary</span>
-      A self-hosted <strong>media platform</strong> — <strong>Jellyfin</strong> for streaming with the
-      <strong>*arr</strong> automation suite (Sonarr, Radarr, Prowlarr, Jellyseerr) managing the library and requests.
-      The interesting part is the networking: all download traffic is forced through a <strong>gluetun VPN container
-      with a kill-switch</strong>, so if the tunnel drops, nothing routes.
+      A self-hosted <strong>media streaming platform</strong> built on <strong>Jellyfin</strong> — my own media
+      library, hardware-transcoded on the GPU and streamed to any device on the network, with
+      <strong>Jellyseerr</strong> as a friendly "request a title" front end. A full replacement for a commercial
+      streaming subscription, running entirely on my own hardware.
     </div>
 
-    <h2><span class="num">01</span>What it does &amp; the networking</h2>
+    <h2><span class="num">01</span>What it does</h2>
     <p>
-      Jellyfin serves the media library to any device. Prowlarr manages indexers, Sonarr and Radarr handle TV and film
-      automatically, and Jellyseerr gives a friendly "request a title" front end. The download client runs with its
-      network routed <em>entirely through</em> the gluetun container (<code>network_mode: service:gluetun</code>) — so
-      its only path to the internet is the VPN tunnel. Gluetun's firewall is configured to <strong>drop all traffic if
-      the VPN goes down</strong> (a kill-switch), which is the real engineering lesson here: enforcing an egress path
-      at the container-network level rather than trusting an app setting.
+      Jellyfin serves my personal media library to phones, tablets, TVs and browsers, transcoding on the fly using the
+      server's NVIDIA GPU so it plays smoothly on any device and connection. Jellyseerr sits in front as a clean
+      discovery and request interface for the household. Access from outside the home rides the lab's existing
+      Cloudflare Tunnel and WireGuard setup, so there are no open inbound ports.
     </p>
 
     <h2><span class="num">02</span>Components &amp; programs involved</h2>
@@ -51,22 +49,18 @@
     <table class="stack">
       <thead><tr><th>Component</th><th>Image</th><th>Role</th></tr></thead>
       <tbody>
-        <tr><td>gluetun</td><td><code>qmcgaw/gluetun</code></td><td>VPN client + firewall kill-switch; every download-side container routes through it.</td></tr>
-        <tr><td>Jellyfin</td><td><code>jellyfin/jellyfin</code></td><td>Media server / streaming front end (8096).</td></tr>
-        <tr><td>Prowlarr</td><td><code>linuxserver/prowlarr</code></td><td>Indexer manager feeding Sonarr &amp; Radarr (9696).</td></tr>
-        <tr><td>Sonarr / Radarr</td><td><code>linuxserver/sonarr</code>, <code>radarr</code></td><td>Automated TV (8989) and film (7878) library management.</td></tr>
-        <tr><td>Jellyseerr</td><td><code>seerr</code></td><td>Request &amp; discovery front end for users (5055).</td></tr>
-        <tr><td>FlareSolverr</td><td><code>flaresolverr</code></td><td>Solves Cloudflare challenges for indexers (8191).</td></tr>
+        <tr><td>Jellyfin</td><td><code>jellyfin/jellyfin</code></td><td>Media server &amp; streaming front end with GPU-accelerated transcoding (8096).</td></tr>
+        <tr><td>Jellyseerr</td><td><code>seerr</code></td><td>Discovery &amp; "request a title" front end for household users (5055).</td></tr>
       </tbody>
     </table>
     </div>
 
     <h2><span class="num">03</span>Why I built it &amp; skills shown</h2>
     <ul>
-      <li><strong>Container networking</strong> — routing one container's whole network through another and enforcing a VPN-only egress path.</li>
-      <li><strong>Kill-switch / fail-closed design</strong> — traffic stops if the tunnel drops, rather than leaking.</li>
-      <li><strong>Service orchestration</strong> — half a dozen interdependent services wired together with health &amp; dependency ordering.</li>
-      <li><strong>Self-hosting</strong> — replacing multiple SaaS subscriptions with one maintained stack.</li>
+      <li><strong>Self-hosting</strong> — replacing a paid streaming service with a maintained platform on my own hardware.</li>
+      <li><strong>Hardware transcoding</strong> — GPU passthrough into a container for smooth multi-device playback.</li>
+      <li><strong>Secure remote access</strong> — reachable away from home via tunnel + VPN, with no open inbound ports.</li>
+      <li><strong>Service orchestration</strong> — interdependent containers deployed and kept healthy with Docker Compose.</li>
     </ul>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#projects">back to projects</a></p>
