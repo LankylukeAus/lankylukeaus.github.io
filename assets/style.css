@@ -361,6 +361,20 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
 .stack tr:last-child td { border-bottom: none; }
 .stack td:nth-child(2) { color: var(--fg-dim); }
 
+/* ── scripts tab ──────────────────────────────────────── */
+.sgroups { display: flex; flex-direction: column; gap: 30px; }
+.sgroup > h3 { font-size: 15px; color: var(--fg-bright); margin: 0 0 4px; display: flex; align-items: center; gap: 10px; }
+.sgroup > h3 .scount { font-family: var(--mono); font-size: 11px; color: var(--green); border: 1px solid var(--green-dim); border-radius: 999px; padding: 1px 8px; font-weight: 400; }
+.sgroup > .sgsub { color: var(--fg-dim); font-size: 13px; margin: 0 0 14px; }
+.slist { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.srow { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; gap: 8px 16px; align-items: baseline;
+        background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 11px 15px; }
+.srow .sname { font-family: var(--mono); font-size: 13px; color: var(--green); word-break: break-word; }
+.srow .slang { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+        color: var(--fg-dim); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; margin-left: 8px; }
+.srow .sdesc { color: var(--fg-dim); font-size: 14px; line-height: 1.55; }
+@media (max-width: 620px) { .srow { grid-template-columns: 1fr; gap: 4px; } }
+
 @media (max-width: 760px) {
   .platforms { grid-template-columns: 1fr; }
 }
