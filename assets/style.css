@@ -307,11 +307,11 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
 .cert .newtag { top: 14px; right: 14px; }
 .pill.newpill { color: #0b0d14; background: var(--green); border-color: var(--green); font-weight: 700; }
 
-/* project status tags: Under construction · Just gone Live · Live · Retired */
-.pill.st-build   { color: var(--amber); border-color: rgba(240,180,0,0.45); }
+/* project status tags: Under construction (yellow) · Just gone Live / Live (green) · Retired (red) */
+.pill.st-build   { color: var(--amber); border-color: rgba(255,184,0,0.5); background: rgba(255,184,0,0.08); }
 .pill.st-new     { color: #0b0d14; background: var(--green); border-color: var(--green); font-weight: 700; }
-.pill.st-live    { color: var(--green); border-color: var(--green-dim); }
-.pill.st-retired { color: var(--fg-dim); border-color: var(--border); }
+.pill.st-live    { color: var(--green); border-color: var(--green-dim); background: rgba(159,239,0,0.10); }
+.pill.st-retired { color: var(--red); border-color: rgba(255,62,62,0.5); background: rgba(255,62,62,0.08); }
 .bcard.feat img { width: 92px; height: 92px; }
 .dot.def { background: #b388ff; } .rd.def { color: #b388ff; }
 
