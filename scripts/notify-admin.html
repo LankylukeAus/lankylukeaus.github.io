@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>notify-admin.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: notify-admin.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">notify-admin.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">76 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Central dispatcher for admin notifications.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/usr/bin/env bash
+set -u
+CONFIG=/etc/lanky-alerts/alerts.env
+LOG=/home/lanky/reports/notify-admin.log
+mkdir -p /home/lanky/reports
+
+message="${*:-}"
+if [ -z "$message" ]; then
+  echo "Usage: $0 message" &gt;&amp;2
+  exit 2
+fi
+
+if [ -f "$CONFIG" ]; then
+  # shellcheck disable=SC1090
+  . "$CONFIG"
+fi
+prefix="${ALERT_PREFIX:-[lankyserver]}"
+body="$prefix $message"
+provider="${ALERT_PROVIDER:-disabled}"
+
+ts() { date -Is; }
+log() { echo "[$(ts)] $*" &gt;&gt; "$LOG"; }
+
+case "$provider" in
+  disabled|''|callmebot_example|whapi_example|twilio_example)
+    log "notification disabled/unconfigured: $body"
+    exit 0
+    ;;
+  callmebot)
+    if [ -z "${CALLMEBOT_PHONE:-}" ] || [ -z "${CALLMEBOT_APIKEY:-}" ]; then
+      log "callmebot missing CALLMEBOT_PHONE or CALLMEBOT_APIKEY"
+      exit 1
+    fi
+    curl -fsS --get 'https://api.callmebot.com/whatsapp.php' \
+      --data-urlencode "phone=$CALLMEBOT_PHONE" \
+      --data-urlencode "text=$body" \
+      --data-urlencode "apikey=$CALLMEBOT_APIKEY" &gt;/dev/null
+    log "sent via callmebot"
+    ;;
+  whapi)
+    if [ -z "${WHAPI_TOKEN:-}" ] || [ -z "${WHAPI_CHAT_ID:-}" ]; then
+      log "whapi missing WHAPI_TOKEN or WHAPI_CHAT_ID"
+      exit 1
+    fi
+    python3 - "$WHAPI_TOKEN" "$WHAPI_CHAT_ID" "$body" &lt;&lt;'PY'
+import json, sys, urllib.request
+_, token, chat_id, body = sys.argv
+payload = json.dumps({'to': chat_id, 'body': body}).encode()
+req = urllib.request.Request(
+    'https://gate.whapi.cloud/messages/text',
+    data=payload,
+    headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+    method='POST',
+)
+with urllib.request.urlopen(req, timeout=20) as r:
+    r.read()
+PY
+    log "sent via whapi"
+    ;;
+  twilio)
+    if [ -z "${TWILIO_ACCOUNT_SID:-}" ] || [ -z "${TWILIO_AUTH_TOKEN:-}" ] || [ -z "${TWILIO_FROM:-}" ] || [ -z "${TWILIO_TO:-}" ]; then
+      log "twilio missing required settings"
+      exit 1
+    fi
+    curl -fsS -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN" \
+      --data-urlencode "From=$TWILIO_FROM" \
+      --data-urlencode "To=$TWILIO_TO" \
+      --data-urlencode "Body=$body" \
+      "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_ACCOUNT_SID/Messages.json" &gt;/dev/null
+    log "sent via twilio"
+    ;;
+  *)
+    log "unknown provider '$provider': $body"
+    exit 1
+    ;;
+esac</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">notify-admin.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

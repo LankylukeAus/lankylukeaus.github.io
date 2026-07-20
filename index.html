@@ -567,9 +567,9 @@
     <section id="scripts" class="tab-panel">
       <h2 class="panel-head">Automation &amp; Scripts</h2>
       <p class="panel-sub">
-        ~45 scripts that run my home lab — security scanning, self-healing, an autonomous agent framework, and ops
-        automation. Below is a categorised index of what each does; the source stays private (it holds internal
-        config), but this is the shape of the automation behind the projects.
+        41 scripts that run my home lab — security scanning, self-healing, an autonomous agent framework, and ops
+        automation. <strong>Click any script name to read the full source.</strong> These are the real, running
+        scripts — I've only replaced secrets (tokens, IDs, phone numbers) with placeholders.
       </p>
 
       <div class="sgroups">
@@ -578,15 +578,15 @@
           <h3>🛡️ Security &amp; hardening <span class="scount">9</span></h3>
           <p class="sgsub">Blue-team automation — scanning, auditing and fail-safe controls.</p>
           <div class="slist">
-            <div class="srow"><div><span class="sname">server-hardening-check.sh</span><span class="slang">bash</span></div><div class="sdesc">Hardening audit that walks SSH config, sudo, firewall and kernel settings and prints a <code>[PASS]/[FAIL]</code> per control.</div></div>
-            <div class="srow"><div><span class="sname">cyber-cve-scan.sh</span><span class="slang">bash</span></div><div class="sdesc">Runs <strong>Trivy</strong> against every running Docker image to surface known CVEs — report-only, against live vulnerability databases.</div></div>
-            <div class="srow"><div><span class="sname">cyber-av-scan.sh</span><span class="slang">bash</span></div><div class="sdesc">Scoped <strong>ClamAV</strong> malware scans (quick / docker-config / nas-media / home) with single-instance locking.</div></div>
-            <div class="srow"><div><span class="sname">cyber-watch.sh</span><span class="slang">bash</span></div><div class="sdesc">Reads the auth journal for <strong>SSH brute-force</strong> candidates and other suspicious activity, producing a windowed security report.</div></div>
-            <div class="srow"><div><span class="sname">cyber-handoff.py</span><span class="slang">python</span></div><div class="sdesc">Packages the cyber agent's findings into a structured handoff for escalation.</div></div>
-            <div class="srow"><div><span class="sname">cyber-notify.py</span><span class="slang">python</span></div><div class="sdesc">Delivers security alerts out to the notification channel.</div></div>
-            <div class="srow"><div><span class="sname">lanky-admin-check.sh</span><span class="slang">bash</span></div><div class="sdesc">Host admin snapshot — uptime, sessions and posture checks for a quick "is everything sane" read.</div></div>
-            <div class="srow"><div><span class="sname">agent-command-sandbox.sh</span><span class="slang">bash</span></div><div class="sdesc">A sandbox wrapper that constrains which commands the autonomous agents are allowed to execute.</div></div>
-            <div class="srow"><div><span class="sname">safe-recycle.py</span><span class="slang">python</span></div><div class="sdesc">Fail-safe deletion — moves files to a <code>@Recycle</code> area with a JSON audit trail instead of ever hard-deleting.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/server-hardening-check.html">server-hardening-check.sh</a><span class="slang">bash</span></div><div class="sdesc">Hardening audit that walks SSH config, sudo, firewall and kernel settings and prints a <code>[PASS]/[FAIL]</code> per control.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/cyber-cve-scan.html">cyber-cve-scan.sh</a><span class="slang">bash</span></div><div class="sdesc">Runs <strong>Trivy</strong> against every running Docker image to surface known CVEs — report-only, against live vulnerability databases.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/cyber-av-scan.html">cyber-av-scan.sh</a><span class="slang">bash</span></div><div class="sdesc">Scoped <strong>ClamAV</strong> malware scans (quick / docker-config / nas-media / home) with single-instance locking.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/cyber-watch.html">cyber-watch.sh</a><span class="slang">bash</span></div><div class="sdesc">Reads the auth journal for <strong>SSH brute-force</strong> candidates and other suspicious activity, producing a windowed security report.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/cyber-handoff.html">cyber-handoff.py</a><span class="slang">python</span></div><div class="sdesc">Packages the cyber agent's findings into a structured handoff for escalation.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/cyber-notify.html">cyber-notify.py</a><span class="slang">python</span></div><div class="sdesc">Delivers security alerts out to the notification channel.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/lanky-admin-check.html">lanky-admin-check.sh</a><span class="slang">bash</span></div><div class="sdesc">Host admin snapshot — uptime, sessions and posture checks for a quick "is everything sane" read.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/agent-command-sandbox.html">agent-command-sandbox.sh</a><span class="slang">bash</span></div><div class="sdesc">A sandbox wrapper that constrains which commands the autonomous agents are allowed to execute.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/safe-recycle.html">safe-recycle.py</a><span class="slang">python</span></div><div class="sdesc">Fail-safe deletion — moves files to a <code>@Recycle</code> area with a JSON audit trail instead of ever hard-deleting.</div></div>
           </div>
         </div>
 
@@ -594,12 +594,12 @@
           <h3>🤖 AI agent framework <span class="scount">6</span></h3>
           <p class="sgsub">The orchestration layer behind the <a class="link" href="projects/agent-team.html">agent ops team</a>.</p>
           <div class="slist">
-            <div class="srow"><div><span class="sname">agent-manager.py</span><span class="slang">python</span></div><div class="sdesc">The L2 watchdog — performance review, gap analysis and job-description enforcement across the whole agent fleet.</div></div>
-            <div class="srow"><div><span class="sname">request-router.py</span><span class="slang">python</span></div><div class="sdesc">Natural-language router that maps a chat phrase ("check jellyfin") to the correct approved action or script.</div></div>
-            <div class="srow"><div><span class="sname">agent-ticket-router.py</span><span class="slang">python</span></div><div class="sdesc">Routes incoming tickets/requests to the agent that owns that domain.</div></div>
-            <div class="srow"><div><span class="sname">agent-handoff.py</span><span class="slang">python</span></div><div class="sdesc">Structured handoff of work and context between agents.</div></div>
-            <div class="srow"><div><span class="sname">l3-escalation.py</span><span class="slang">python</span></div><div class="sdesc">Encodes the issues only a human (L3) can decide — with the affected system, the why, and the proposed change.</div></div>
-            <div class="srow"><div><span class="sname">docker-level2.py</span><span class="slang">python</span></div><div class="sdesc">The L2 Docker agent's logic — container triage and remediation decisions.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/agent-manager.html">agent-manager.py</a><span class="slang">python</span></div><div class="sdesc">The L2 watchdog — performance review, gap analysis and job-description enforcement across the whole agent fleet.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/request-router.html">request-router.py</a><span class="slang">python</span></div><div class="sdesc">Natural-language router that maps a chat phrase ("check jellyfin") to the correct approved action or script.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/agent-ticket-router.html">agent-ticket-router.py</a><span class="slang">python</span></div><div class="sdesc">Routes incoming tickets/requests to the agent that owns that domain.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/agent-handoff.html">agent-handoff.py</a><span class="slang">python</span></div><div class="sdesc">Structured handoff of work and context between agents.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/l3-escalation.html">l3-escalation.py</a><span class="slang">python</span></div><div class="sdesc">Encodes the issues only a human (L3) can decide — with the affected system, the why, and the proposed change.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/docker-level2.html">docker-level2.py</a><span class="slang">python</span></div><div class="sdesc">The L2 Docker agent's logic — container triage and remediation decisions.</div></div>
           </div>
         </div>
 
@@ -607,14 +607,14 @@
           <h3>📈 Monitoring &amp; self-healing <span class="scount">8</span></h3>
           <p class="sgsub">Detect → remediate → report, delivered to my phone.</p>
           <div class="slist">
-            <div class="srow"><div><span class="sname">healthcheck.sh</span><span class="slang">bash</span></div><div class="sdesc">Full server healthcheck (v2) — services, mounts, containers, disk and GPU in one pass.</div></div>
-            <div class="srow"><div><span class="sname">docker-watchdog.sh</span><span class="slang">bash</span></div><div class="sdesc">Detects stale NAS/CIFS mounts, stops affected containers, remounts, and only restarts once storage is readable again.</div></div>
-            <div class="srow"><div><span class="sname">lanky-alert-monitor.sh</span><span class="slang">bash</span></div><div class="sdesc">Watches for alert conditions and fires notifications when thresholds trip.</div></div>
-            <div class="srow"><div><span class="sname">whatsapp-health-check.sh</span><span class="slang">bash</span></div><div class="sdesc">Runs a health check and delivers the result to WhatsApp.</div></div>
-            <div class="srow"><div><span class="sname">full-health-whatsapp.sh</span><span class="slang">bash</span></div><div class="sdesc">Pushes a full health summary to the WhatsApp channel.</div></div>
-            <div class="srow"><div><span class="sname">send-verified-health-whatsapp.sh</span><span class="slang">bash</span></div><div class="sdesc">Sends only <em>verified</em> health results — guards against false-positive "all good" messages.</div></div>
-            <div class="srow"><div><span class="sname">person-friendly-report.sh</span><span class="slang">bash</span></div><div class="sdesc">Rewrites raw technical output into a plain-English report a human actually wants to read.</div></div>
-            <div class="srow"><div><span class="sname">test-whatsapp-health-agent.sh</span><span class="slang">bash</span></div><div class="sdesc">Test harness for the WhatsApp health-agent pipeline.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/healthcheck.html">healthcheck.sh</a><span class="slang">bash</span></div><div class="sdesc">Full server healthcheck (v2) — services, mounts, containers, disk and GPU in one pass.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/docker-watchdog.html">docker-watchdog.sh</a><span class="slang">bash</span></div><div class="sdesc">Detects stale NAS/CIFS mounts, stops affected containers, remounts, and only restarts once storage is readable again.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/lanky-alert-monitor.html">lanky-alert-monitor.sh</a><span class="slang">bash</span></div><div class="sdesc">Watches for alert conditions and fires notifications when thresholds trip.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/whatsapp-health-check.html">whatsapp-health-check.sh</a><span class="slang">bash</span></div><div class="sdesc">Runs a health check and delivers the result to WhatsApp.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/full-health-whatsapp.html">full-health-whatsapp.sh</a><span class="slang">bash</span></div><div class="sdesc">Pushes a full health summary to the WhatsApp channel.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/send-verified-health-whatsapp.html">send-verified-health-whatsapp.sh</a><span class="slang">bash</span></div><div class="sdesc">Sends only <em>verified</em> health results — guards against false-positive "all good" messages.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/person-friendly-report.html">person-friendly-report.sh</a><span class="slang">bash</span></div><div class="sdesc">Rewrites raw technical output into a plain-English report a human actually wants to read.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/test-whatsapp-health-agent.html">test-whatsapp-health-agent.sh</a><span class="slang">bash</span></div><div class="sdesc">Test harness for the WhatsApp health-agent pipeline.</div></div>
           </div>
         </div>
 
@@ -622,13 +622,13 @@
           <h3>💾 Storage &amp; NAS <span class="scount">7</span></h3>
           <p class="sgsub">Keeping a 21 TB NAS healthy and tidy.</p>
           <div class="slist">
-            <div class="srow"><div><span class="sname">check_nas_usage.sh</span><span class="slang">bash</span></div><div class="sdesc">NAS capacity check with threshold warnings.</div></div>
-            <div class="srow"><div><span class="sname">nas-health-report.sh</span><span class="slang">bash</span></div><div class="sdesc">Overall NAS health &amp; availability report.</div></div>
-            <div class="srow"><div><span class="sname">nas-duplicate-report.sh</span><span class="slang">bash</span></div><div class="sdesc">Finds and reports duplicate files across the NAS.</div></div>
-            <div class="srow"><div><span class="sname">nas-duplicate-cleanup.sh</span><span class="slang">bash</span></div><div class="sdesc">Removes duplicates safely (via <code>safe-recycle</code>, never a hard delete).</div></div>
-            <div class="srow"><div><span class="sname">nas-junk-cleanup.sh</span><span class="slang">bash</span></div><div class="sdesc">Clears junk / temp / leftover files to reclaim space.</div></div>
-            <div class="srow"><div><span class="sname">nas-media-check.py</span><span class="slang">python</span></div><div class="sdesc">Audits the media library for integrity and metadata issues.</div></div>
-            <div class="srow"><div><span class="sname">nas-media-review.sh</span><span class="slang">bash</span></div><div class="sdesc">Generates a review of the media library for the media agent.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/check_nas_usage.html">check_nas_usage.sh</a><span class="slang">bash</span></div><div class="sdesc">NAS capacity check with threshold warnings.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/nas-health-report.html">nas-health-report.sh</a><span class="slang">bash</span></div><div class="sdesc">Overall NAS health &amp; availability report.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/nas-duplicate-report.html">nas-duplicate-report.sh</a><span class="slang">bash</span></div><div class="sdesc">Finds and reports duplicate files across the NAS.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/nas-duplicate-cleanup.html">nas-duplicate-cleanup.sh</a><span class="slang">bash</span></div><div class="sdesc">Removes duplicates safely (via <code>safe-recycle</code>, never a hard delete).</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/nas-junk-cleanup.html">nas-junk-cleanup.sh</a><span class="slang">bash</span></div><div class="sdesc">Clears junk / temp / leftover files to reclaim space.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/nas-media-check.html">nas-media-check.py</a><span class="slang">python</span></div><div class="sdesc">Audits the media library for integrity and metadata issues.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/nas-media-review.html">nas-media-review.sh</a><span class="slang">bash</span></div><div class="sdesc">Generates a review of the media library for the media agent.</div></div>
           </div>
         </div>
 
@@ -636,7 +636,7 @@
           <h3>🎬 Media library <span class="scount">1</span></h3>
           <p class="sgsub">Quality checks for the Jellyfin library.</p>
           <div class="slist">
-            <div class="srow"><div><span class="sname">media-english-check.sh</span><span class="slang">bash</span></div><div class="sdesc">Flags media with missing or non-English audio/subtitle tracks.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/media-english-check.html">media-english-check.sh</a><span class="slang">bash</span></div><div class="sdesc">Flags media with missing or non-English audio/subtitle tracks.</div></div>
           </div>
         </div>
 
@@ -644,10 +644,10 @@
           <h3>💽 Backups &amp; updates <span class="scount">4</span></h3>
           <p class="sgsub">Reproducibility and staying patched.</p>
           <div class="slist">
-            <div class="srow"><div><span class="sname">docker-backup.sh</span><span class="slang">bash</span></div><div class="sdesc">Archives every stack's compose + <code>.env</code> files to the NAS with retention — the "rebuild from scratch" safety net.</div></div>
-            <div class="srow"><div><span class="sname">update-all.sh</span><span class="slang">bash</span></div><div class="sdesc">Pulls and recreates all Docker stacks to their latest images.</div></div>
-            <div class="srow"><div><span class="sname">update-os.sh</span><span class="slang">bash</span></div><div class="sdesc">Applies OS package updates on the host.</div></div>
-            <div class="srow"><div><span class="sname">run-tonight-updates.sh</span><span class="slang">bash</span></div><div class="sdesc">Scheduled overnight runner that sequences the OS and image updates in a safe window.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/docker-backup.html">docker-backup.sh</a><span class="slang">bash</span></div><div class="sdesc">Archives every stack's compose + <code>.env</code> files to the NAS with retention — the "rebuild from scratch" safety net.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/update-all.html">update-all.sh</a><span class="slang">bash</span></div><div class="sdesc">Pulls and recreates all Docker stacks to their latest images.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/update-os.html">update-os.sh</a><span class="slang">bash</span></div><div class="sdesc">Applies OS package updates on the host.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/run-tonight-updates.html">run-tonight-updates.sh</a><span class="slang">bash</span></div><div class="sdesc">Scheduled overnight runner that sequences the OS and image updates in a safe window.</div></div>
           </div>
         </div>
 
@@ -655,9 +655,9 @@
           <h3>🔔 Notifications &amp; bots <span class="scount">3</span></h3>
           <p class="sgsub">How the lab talks back to me.</p>
           <div class="slist">
-            <div class="srow"><div><span class="sname">telegram-bot.py</span><span class="slang">python</span></div><div class="sdesc">Unified Telegram channel for the agent team — a second control/notification surface alongside WhatsApp.</div></div>
-            <div class="srow"><div><span class="sname">notify-admin.sh</span><span class="slang">bash</span></div><div class="sdesc">Central dispatcher for admin notifications.</div></div>
-            <div class="srow"><div><span class="sname">google-oauth-setup.py</span><span class="slang">python</span></div><div class="sdesc">One-time Google OAuth setup granting Gmail + Calendar access for the assistant.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/telegram-bot.html">telegram-bot.py</a><span class="slang">python</span></div><div class="sdesc">Unified Telegram channel for the agent team — a second control/notification surface alongside WhatsApp.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/notify-admin.html">notify-admin.sh</a><span class="slang">bash</span></div><div class="sdesc">Central dispatcher for admin notifications.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/google-oauth-setup.html">google-oauth-setup.py</a><span class="slang">python</span></div><div class="sdesc">One-time Google OAuth setup granting Gmail + Calendar access for the assistant.</div></div>
           </div>
         </div>
 
@@ -665,9 +665,9 @@
           <h3>🔧 Infrastructure utilities <span class="scount">3</span></h3>
           <p class="sgsub">Small fixers that keep the plumbing working.</p>
           <div class="slist">
-            <div class="srow"><div><span class="sname">update_mounts.sh</span><span class="slang">bash</span></div><div class="sdesc">Ensures the media containers mount the shared storage path correctly after config changes.</div></div>
-            <div class="srow"><div><span class="sname">fix_govee_lights.sh</span><span class="slang">bash</span></div><div class="sdesc">Recovers Govee lighting by running a repair routine inside the Home Assistant container.</div></div>
-            <div class="srow"><div><span class="sname">makecert.sh</span><span class="slang">bash</span></div><div class="sdesc">Generates local TLS certificates for internal services.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/update_mounts.html">update_mounts.sh</a><span class="slang">bash</span></div><div class="sdesc">Ensures the media containers mount the shared storage path correctly after config changes.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/fix_govee_lights.html">fix_govee_lights.sh</a><span class="slang">bash</span></div><div class="sdesc">Recovers Govee lighting by running a repair routine inside the Home Assistant container.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/makecert.html">makecert.sh</a><span class="slang">bash</span></div><div class="sdesc">Generates local TLS certificates for internal services.</div></div>
           </div>
         </div>
 

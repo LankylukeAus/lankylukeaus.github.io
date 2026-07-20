@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>whatsapp-health-check.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: whatsapp-health-check.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">whatsapp-health-check.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">151 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Runs a health check and delivers the result to WhatsApp.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/usr/bin/env bash
+set -u
+
+timestamp=$(date '+%Y-%m-%d %H:%M %Z')
+host=$(hostname)
+uptime_text=$(uptime -p 2&gt;/dev/null || echo unknown)
+load_text=$(awk '{print $1 ", " $2 ", " $3}' /proc/loadavg 2&gt;/dev/null || echo unknown)
+
+
+power_state="unknown"
+power_detail="power status unavailable"
+adapters=""
+batteries=""
+if command -v on_ac_power &gt;/dev/null 2&gt;&amp;1; then
+  if on_ac_power &gt;/dev/null 2&gt;&amp;1; then
+    power_state="ac"
+  else
+    power_rc=$?
+    if [ "$power_rc" -eq 1 ]; then
+      power_state="battery"
+    fi
+  fi
+fi
+for supply in /sys/class/power_supply/*; do
+  [ -d "$supply" ] || continue
+  name=$(basename "$supply")
+  type=$(cat "$supply/type" 2&gt;/dev/null || echo unknown)
+  case "$type" in
+    Mains|USB|USB_C|USB_PD)
+      online=$(cat "$supply/online" 2&gt;/dev/null || echo unknown)
+      adapters="${adapters}${name} online=${online}; "
+      ;;
+    Battery)
+      status=$(cat "$supply/status" 2&gt;/dev/null || echo unknown)
+      capacity=$(cat "$supply/capacity" 2&gt;/dev/null || echo unknown)
+      batteries="${batteries}${name} ${status} ${capacity}%; "
+      ;;
+  esac
+done
+if [ "$power_state" = unknown ] &amp;&amp; printf '%s' "$adapters" | grep -q 'online=1'; then
+  power_state="ac"
+elif [ "$power_state" = unknown ] &amp;&amp; printf '%s' "$batteries" | grep -qi 'Discharging'; then
+  power_state="battery"
+fi
+case "$power_state" in
+  ac) power_detail="AC power (${adapters:-adapter unknown}${batteries:+ battery: $batteries})" ;;
+  battery) power_detail="ON BATTERY - MAJOR ALERT: faulty charge port risk; server may lose power (${adapters:-adapter unknown}${batteries:+ battery: $batteries})" ;;
+  *) power_detail="UNKNOWN (${adapters:-adapter unknown}${batteries:+ battery: $batteries})" ;;
+esac
+
+if systemctl is-active --quiet docker; then
+  docker_state=active
+else
+  docker_state=NOT_ACTIVE
+fi
+
+running=$(timeout 10s docker ps -q 2&gt;/dev/null | wc -l)
+total=$(timeout 10s docker ps -aq 2&gt;/dev/null | wc -l)
+problem_containers=$(
+  {
+    timeout 10s docker ps -a --filter status=exited --filter status=dead --filter status=restarting \
+      --format '{{.Names}} ({{.Status}})' 2&gt;/dev/null
+    timeout 10s docker ps --filter health=unhealthy --format '{{.Names}} ({{.Status}})' 2&gt;/dev/null
+  } | sed '/^$/d' | sort -u
+)
+
+failed_units=$(systemctl --failed --no-legend --plain 2&gt;/dev/null | sed '/^$/d' | wc -l)
+root_usage=$(df -hP / | awk 'NR==2 {print $5 " used, " $4 " available"}')
+
+mount_status() {
+  local path=$1
+  if timeout 5s mountpoint -q "$path"; then
+    local space
+    space=$(timeout 10s df -hP "$path" 2&gt;/dev/null | awk 'NR==2 {print $5 " used, " $4 " available"}')
+    echo "mounted (${space:-capacity unavailable})"
+  else
+    echo "NOT MOUNTED"
+  fi
+}
+
+nas_status=$(mount_status /mnt/nas)
+jelly_status=$(mount_status /mnt/jelly)
+
+gateway_state=$(systemctl --user is-active openclaw-gateway.service 2&gt;/dev/null || echo inactive)
+
+gpu_line=$(timeout 10s nvidia-smi \
+  --query-gpu=name,driver_version,memory.used,memory.total,temperature.gpu \
+  --format=csv,noheader 2&gt;/dev/null | head -1)
+if [ -z "$gpu_line" ]; then
+  gpu_line="unavailable"
+fi
+
+ollama_processor=$(timeout 10s docker exec ollama ollama ps 2&gt;/dev/null | awk 'NR==2 {print $5 " " $6}')
+if [ -z "$ollama_processor" ]; then
+  ollama_processor="idle or unavailable"
+fi
+
+healthy_named=$(
+  timeout 10s docker ps --format '{{.Names}}|{{.Status}}' 2&gt;/dev/null |
+    awk -F'|' '
+      $1 == "homeassistant" || $1 == "jellyfin" || $1 == "gluetun" ||
+      $1 == "pihole" || $1 == "openwebui" {
+        print "- " $1 ": " $2
+      }
+    '
+)
+
+if [ "$power_state" = battery ]; then
+  overall="MAJOR ALERT"
+elif [ "$docker_state" = active ] &amp;&amp;
+   [ "$running" -eq "$total" ] &amp;&amp;
+   [ "$failed_units" -eq 0 ] &amp;&amp;
+   [ -z "$problem_containers" ] &amp;&amp;
+   timeout 5s mountpoint -q /mnt/nas &amp;&amp;
+   timeout 5s mountpoint -q /mnt/jelly &amp;&amp;
+   [ "$gateway_state" = active ]; then
+  overall=HEALTHY
+else
+  overall="NEEDS ATTENTION"
+fi
+
+cat &lt;&lt;EOF
+SYSTEM HEALTH CHECK
+Generated: $timestamp
+Host: $host
+
+Overall: $overall
+- Uptime: $uptime_text
+- Load averages: $load_text
+- Power: $power_detail
+- Docker: $docker_state; $running/$total containers running
+- Failed systemd units: $failed_units
+- OpenClaw WhatsApp gateway: $gateway_state
+- Server disk: $root_usage
+- /mnt/nas: $nas_status
+- /mnt/jelly: $jelly_status
+- GPU: $gpu_line
+- Ollama processor: $ollama_processor
+${healthy_named:-}
+EOF
+
+if [ -n "$problem_containers" ]; then
+  echo
+  echo "Container problems:"
+  echo "$problem_containers" | sed 's/^/- /'
+fi
+
+if timeout 10s df -P /mnt/nas 2&gt;/dev/null | awk 'NR==2 {gsub("%","",$5); exit !($5 &gt;= 90)}'; then
+  echo
+  echo "Warning: NAS storage is at or above 90% usage."
+fi</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">whatsapp-health-check.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

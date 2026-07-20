@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>docker-level2.py — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: docker-level2.py">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">docker-level2.py</h1>
+    <div class="machine-meta">
+      <span class="pill">python</span>
+      <span class="pill">107 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">The L2 Docker agent's logic — container triage and remediation decisions.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="python"><code>#!/usr/bin/env python3
+import datetime
+import json
+import os
+import re
+import subprocess
+import sys
+
+REPORT_DIR = "/home/lanky/reports"
+AUDIT_LOG = os.path.join(REPORT_DIR, "docker-level2-audit.jsonl")
+VALID_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+def docker(*args: str, timeout: int = 120) -&gt; subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["docker", *args],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def existing_containers() -&gt; set[str]:
+    result = docker("ps", "-a", "--format", "{{.Names}}")
+    if result.returncode:
+        raise RuntimeError(result.stdout.strip())
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+def audit(action: str, containers: list[str], result: str) -&gt; None:
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    record = {
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "level": 2,
+        "action": action,
+        "containers": containers,
+        "result": result,
+    }
+    with open(AUDIT_LOG, "a", encoding="utf-8") as log:
+        log.write(json.dumps(record, ensure_ascii=True) + "\n")
+
+
+def status() -&gt; int:
+    result = docker(
+        "ps", "-a", "--format",
+        "{{.Names}}\t{{.Status}}\t{{.Image}}",
+    )
+    print(result.stdout.strip())
+    audit("status", [], "success" if result.returncode == 0 else "failed")
+    return result.returncode
+
+
+def restart(names: list[str]) -&gt; int:
+    if not names:
+        print("No container names were supplied.", file=sys.stderr)
+        return 2
+    if any(not VALID_NAME.fullmatch(name) for name in names):
+        print("Invalid container name.", file=sys.stderr)
+        return 2
+
+    existing = existing_containers()
+    missing = sorted(set(names) - existing)
+    if missing:
+        print("Refusing restart; container does not exist: " + ", ".join(missing))
+        audit("restart", names, "refused_missing_container")
+        return 3
+
+    output = []
+    failures = []
+    for name in names:
+        result = docker("restart", "--time", "30", name, timeout=90)
+        if result.returncode:
+            failures.append(name)
+            output.append(f"{name}: FAILED\n{result.stdout.strip()}")
+            continue
+        inspect = docker(
+            "inspect", "--format",
+            "{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}",
+            name,
+        )
+        state = inspect.stdout.strip() if inspect.returncode == 0 else "state unavailable"
+        output.append(f"{name}: restarted; {state}")
+
+    print("\n".join(output))
+    result_text = "failed:" + ",".join(failures) if failures else "success"
+    audit("restart", names, result_text)
+    return 1 if failures else 0
+
+
+def main() -&gt; int:
+    if len(sys.argv) &lt; 2:
+        print("Usage: docker-level2.py status|restart [container ...]", file=sys.stderr)
+        return 2
+    action = sys.argv[1]
+    if action == "status" and len(sys.argv) == 2:
+        return status()
+    if action == "restart":
+        return restart(sys.argv[2:])
+    print("Level 2 permits only status and restart.", file=sys.stderr)
+    audit(action, sys.argv[2:], "refused_action")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">docker-level2.py · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

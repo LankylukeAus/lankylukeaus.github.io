@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cyber-notify.py — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: cyber-notify.py">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">cyber-notify.py</h1>
+    <div class="machine-meta">
+      <span class="pill">python</span>
+      <span class="pill">129 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Delivers security alerts out to the notification channel.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="python"><code>#!/usr/bin/env python3
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+
+REPORT = "/home/lanky/reports/agent-cyber-analyst-latest.md"
+STATE_DIR = "/var/lib/lanky-cyber-notify"
+STATE_FILE = os.path.join(STATE_DIR, "last-finding.sha256")
+GROUP_ID = os.environ.get("LANKY_ALERT_GROUP_ID", "&lt;WHATSAPP_GROUP_ID&gt;")
+ACCEPTED_RISKS = "/etc/lanky-security/accepted-risks.json"
+
+
+def accepted_warning_names() -&gt; set[str]:
+    try:
+        with open(ACCEPTED_RISKS, encoding="utf-8") as handle:
+            records = json.load(handle)
+    except (OSError, ValueError):
+        return set()
+    return {
+        item["finding"]
+        for item in records
+        if item.get("status") == "accepted" and item.get("finding")
+    }
+
+
+def send(message: str) -&gt; bool:
+    result = subprocess.run(
+        [
+            "sudo", "-u", "lanky", "-H", "openclaw", "message", "send",
+            "--channel", "whatsapp", "--account", "default",
+            "--target", GROUP_ID, "--message", message,
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if result.returncode:
+        print(result.stdout.strip(), file=sys.stderr)
+        return False
+    return True
+
+
+def main() -&gt; int:
+    os.makedirs(STATE_DIR, exist_ok=True)
+    try:
+        report = open(REPORT, encoding="utf-8", errors="replace").read()
+    except OSError as exc:
+        finding = f"Cyber Agent report unavailable: {exc}"
+    else:
+        findings = []
+        external = re.search(r"External failed SSH authentication events:\s*(\d+)", report)
+        if external and int(external.group(1)):
+            findings.append(external.group(0))
+
+        findings.extend(
+            item
+            for item in re.findall(r"Invalid SSH username[^\n]+", report)
+            if "none" not in item.lower()
+        )
+
+        warning_names = re.search(r"OpenClaw warnings:\s*([^\n]+)", report)
+        if warning_names:
+            accepted = accepted_warning_names()
+            actionable = [
+                item.strip(" .")
+                for item in warning_names.group(1).split(",")
+                if item.strip(" .") not in accepted
+            ]
+            if actionable:
+                findings.append("Actionable OpenClaw warnings: " + ", ".join(actionable))
+
+        denied = re.search(
+            r"(?:Active )?sudo/authentication failures involving the lanky service account(?: \(last hour\))?:\s*(\d+)",
+            report,
+        )
+        if denied and int(denied.group(1)):
+            findings.append(denied.group(0))
+
+        if re.search(r"(?m)^- FAILED:|report was unavailable", report, re.I):
+            findings.append("A Cyber Agent collection or remediation check failed.")
+
+        finding = "\n".join(dict.fromkeys(findings))
+
+    digest = hashlib.sha256(finding.encode()).hexdigest() if finding else ""
+    previous = ""
+    try:
+        previous = open(STATE_FILE, encoding="ascii").read().strip()
+    except OSError:
+        pass
+
+    if finding and digest != previous:
+        handoff_summary = ""
+        try:
+            handoffs = __import__("json").load(
+                open("/var/lib/lanky-cyber-handoff/active.json", encoding="utf-8")
+            )
+            rows = [
+                f"- {item.get('detail')} -&gt; {item.get('target')} ({item.get('status')})"
+                for item in handoffs.values()
+            ]
+            if rows:
+                handoff_summary = "\n\nCross-agent handoffs:\n" + "\n".join(rows)
+        except (OSError, ValueError):
+            pass
+        message = (
+            "CYBER ALERT: the Cyber Analyst found security issues or warnings.\n\n"
+            f"{finding}{handoff_summary}\n\n"
+            "The full Cyber Agent report remains available on lankyserver."
+        )
+        if not send(message):
+            return 1
+        open(STATE_FILE, "w", encoding="ascii").write(digest + "\n")
+        print("Cyber alert sent.")
+    elif not finding and previous:
+        if not send("CYBER RESOLVED: the Cyber Analyst currently reports no active security issues."):
+            return 1
+        open(STATE_FILE, "w", encoding="ascii").write("")
+        print("Cyber resolution sent.")
+    else:
+        print("No changed Cyber finding to notify.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">cyber-notify.py · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>docker-watchdog.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: docker-watchdog.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">docker-watchdog.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">148 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Detects stale NAS/CIFS mounts, stops affected containers, remounts, and only restarts once storage is readable again.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/usr/bin/env bash
+set -u
+REPORT_DIR=/home/lanky/reports
+LOG="$REPORT_DIR/docker-watchdog.log"
+LOCK=/run/lanky-docker-watchdog.lock
+PROTECTED_RESTART=" homeassistant cloudflared pihole-edge wireguard "
+NAS_BACKED_CONTAINERS=" jellyfin jellyseerr qbittorrent radarr sonarr "
+mkdir -p "$REPORT_DIR"
+exec &gt;&gt; "$LOG" 2&gt;&amp;1
+exec 9&gt;"$LOCK"
+if ! flock -n 9; then
+  echo "[$(date -Is)] watchdog already running; skipping overlapping run"
+  exit 0
+fi
+
+is_protected_restart() {
+  case "$PROTECTED_RESTART" in
+    *" $1 "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+container_state() {
+  docker inspect "$1" --format '{{.State.Status}} exit={{.State.ExitCode}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' 2&gt;/dev/null || echo unknown
+}
+
+readable_mount() {
+  local mount_path=$1
+  local probe_path=$mount_path
+  case "$mount_path" in
+    /mnt/jelly) probe_path=/mnt/jelly/Cartoons ;;
+    /mnt/nas) probe_path=/mnt/nas/Backups ;;
+  esac
+  timeout 25s find "$probe_path" -maxdepth 1 -mindepth 1 -print -quit &gt;/dev/null 2&gt;&amp;1
+}
+
+jellyfin_media_visible() {
+  docker inspect jellyfin &gt;/dev/null 2&gt;&amp;1 || return 0
+  [ "$(docker inspect jellyfin --format '{{.State.Status}}' 2&gt;/dev/null)" = "running" ] || return 0
+  timeout 8s docker exec jellyfin sh -c 'test -d /data/media/Movies &amp;&amp; test -d /data/media/Cartoons &amp;&amp; test -d "/data/media/TV Shows"' &gt;/dev/null 2&gt;&amp;1
+}
+
+recover_mounts() {
+  echo "[$(date -Is)] stopping NAS-backed containers for mount recovery"
+  for c in $NAS_BACKED_CONTAINERS; do
+    if docker inspect "$c" &gt;/dev/null 2&gt;&amp;1; then
+      docker stop -t 15 "$c" &gt;/dev/null || docker kill "$c" &gt;/dev/null || true
+    fi
+  done
+
+  echo "[$(date -Is)] refreshing CIFS mounts"
+  systemctl stop mnt-jelly.mount mnt-nas.mount 2&gt;/dev/null || true
+  umount -l /mnt/jelly 2&gt;/dev/null || true
+  umount -l /mnt/nas 2&gt;/dev/null || true
+  sleep 3
+  systemctl daemon-reload || true
+  timeout 30s mount /mnt/jelly || echo "[$(date -Is)] failed to mount /mnt/jelly"
+  timeout 30s mount /mnt/nas || echo "[$(date -Is)] failed to mount /mnt/nas"
+
+  mounts_recovered=1
+  for m in /mnt/nas /mnt/jelly; do
+    if readable_mount "$m"; then
+      echo "[$(date -Is)] $m readable after recovery"
+    else
+      echo "[$(date -Is)] $m still unreadable after recovery"
+      mounts_recovered=0
+    fi
+  done
+
+  if [ "$mounts_recovered" -ne 1 ]; then
+    echo "[$(date -Is)] leaving NAS-backed containers stopped until mounts recover"
+    return
+  fi
+
+  echo "[$(date -Is)] starting NAS-backed containers after mount recovery"
+  for c in $NAS_BACKED_CONTAINERS; do
+    if docker inspect "$c" &gt;/dev/null 2&gt;&amp;1; then
+      docker start "$c" &gt;/dev/null || echo "[$(date -Is)] failed to start $c"
+    fi
+  done
+}
+
+echo "[$(date -Is)] watchdog start"
+needs_mount_recovery=0
+for m in /mnt/nas /mnt/jelly; do
+  if ! mountpoint -q "$m"; then
+    echo "[$(date -Is)] $m missing; attempting mount"
+    needs_mount_recovery=1
+    mount "$m" || echo "[$(date -Is)] failed to mount $m"
+  fi
+  if mountpoint -q "$m" &amp;&amp; readable_mount "$m"; then
+    echo "[$(date -Is)] $m mounted and readable"
+  elif mountpoint -q "$m"; then
+    echo "[$(date -Is)] $m mounted but unreadable/stale"
+    needs_mount_recovery=1
+  else
+    echo "[$(date -Is)] $m still missing"
+    needs_mount_recovery=1
+  fi
+done
+
+if ! systemctl is-active --quiet docker; then
+  echo "[$(date -Is)] docker inactive; starting docker"
+  systemctl start docker || echo "[$(date -Is)] failed to start docker"
+fi
+
+if ! command -v docker &gt;/dev/null 2&gt;&amp;1; then
+  echo "[$(date -Is)] docker command missing"
+  exit 0
+fi
+
+if [ "$needs_mount_recovery" -eq 1 ]; then
+  recover_mounts
+fi
+
+problem_containers=$(docker ps -a --filter status=exited --filter status=dead --filter status=restarting --format '{{.Names}}' 2&gt;/dev/null; docker ps --filter health=unhealthy --format '{{.Names}}' 2&gt;/dev/null)
+echo "$problem_containers" | awk 'NF' | sort -u | while read -r c; do
+  case "$c" in
+    '') continue ;;
+    *)
+      if is_protected_restart "$c"; then
+        state=$(container_state "$c")
+        echo "[$(date -Is)] protected problem container, report only: $c state=$state"
+        continue
+      fi
+      state=$(container_state "$c")
+      case "$state" in
+        "exited exit=0 "*)
+          echo "[$(date -Is)] ignoring successful exited container: $c state=$state"
+          ;;
+        *unhealthy*|exited*|dead*|restarting*)
+          echo "[$(date -Is)] restarting problem container: $c state=$state"
+          docker restart "$c" &gt;/dev/null || echo "[$(date -Is)] failed to restart $c"
+          ;;
+        *)
+          echo "[$(date -Is)] skip restart, state no longer failed: $c state=$state"
+          ;;
+      esac
+      ;;
+  esac
+done
+
+if readable_mount /mnt/jelly &amp;&amp; ! jellyfin_media_visible; then
+  echo "[$(date -Is)] jellyfin running without visible media paths; restarting"
+  docker restart jellyfin &gt;/dev/null || echo "[$(date -Is)] failed to restart jellyfin"
+fi
+
+echo "[$(date -Is)] watchdog done"</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">docker-watchdog.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>media-english-check.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: media-english-check.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">media-english-check.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">69 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Flags media with missing or non-English audio/subtitle tracks.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/usr/bin/env bash
+set -euo pipefail
+
+REPORT_DIR=/home/lanky/reports
+LOCK_FILE=$REPORT_DIR/media-english-check.lock
+GROUP_ID=&lt;WHATSAPP_GROUP_ID&gt;
+mkdir -p "$REPORT_DIR"
+
+if [ "${1:-}" = "--worker" ]; then
+  exec 9&gt;"$LOCK_FILE"
+  if ! flock -n 9; then
+    exit 0
+  fi
+
+  stamp=$(date +%Y%m%d-%H%M%S)
+  run_log="$REPORT_DIR/media-english-check-$stamp.log"
+  set +e
+  report_path=$(/home/lanky/scripts/nas-media-check.py 2&gt;"$run_log")
+  status=$?
+  set -e
+
+  if [ -n "$report_path" ] &amp;&amp; [ -f "$report_path" ]; then
+    cp "$report_path" "$REPORT_DIR/media-english-check-latest.txt"
+    summary=$(awk '
+      /^Media files checked:/ {checked=$0}
+      /^Playback concerns:/ {playback=$0}
+      /^No English audio tag:/ {english=$0}
+      /^Unknown audio language:/ {unknown=$0}
+      END {
+        print "Media Admin English/playback check completed."
+        print "- Status: " (status == 0 ? "ok" : "needs review")
+        print "- " checked
+        print "- " playback
+        print "- " english
+        print "- " unknown
+      }
+    ' status="$status" "$report_path")
+    summary="$summary
+- Full report: $report_path
+- No files were deleted or moved by this English/playback check."
+    if [ -z "${SERVICE_DESK_JOB_ID:-}" ]; then
+      sudo -u lanky openclaw message send \
+        --channel whatsapp \
+        --account default \
+        --target "$GROUP_ID" \
+        --message "$summary" \
+        --media "$report_path" \
+        --force-document &gt;&gt;"$run_log" 2&gt;&amp;1 || true
+    fi
+  else
+    if [ -z "${SERVICE_DESK_JOB_ID:-}" ]; then
+      sudo -u lanky openclaw message send \
+        --channel whatsapp \
+        --account default \
+        --target "$GROUP_ID" \
+        --message "Media Admin English/playback check failed before producing a report. Log: $run_log" &gt;&gt;"$run_log" 2&gt;&amp;1 || true
+    fi
+  fi
+  exit "$status"
+fi
+
+if flock -n "$LOCK_FILE" true; then
+  nohup "$0" --worker &gt;/dev/null 2&gt;&amp;1 &amp;
+  echo "Media Admin English/playback check started in the background."
+  echo "It is report-only: no files will be deleted or moved."
+  echo "A WhatsApp update will be sent to Lanky Server Alerts when complete."
+else
+  echo "A Media Admin English/playback check is already running."
+fi</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">media-english-check.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

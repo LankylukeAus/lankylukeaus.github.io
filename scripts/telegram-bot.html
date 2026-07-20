@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>telegram-bot.py — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: telegram-bot.py">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">telegram-bot.py</h1>
+    <div class="machine-meta">
+      <span class="pill">python</span>
+      <span class="pill">150 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Unified Telegram channel for the agent team — a second control/notification surface alongside WhatsApp.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="python"><code>#!/usr/bin/env python3
+"""LankyServer Telegram Bot — unified channel for the Openclaw agent team."""
+import asyncio
+import logging
+import os
+import subprocess
+import sys
+
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+
+logging.basicConfig(
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=logging.INFO,
+    stream=sys.stdout,
+)
+log = logging.getLogger("lanky-telegram")
+
+TOKEN_FILE = "/home/lanky/secrets/telegram-bot-token"
+ALLOWED_CHAT_FILE = "/home/lanky/secrets/telegram-allowed-chats"
+ROUTER = "/home/lanky/scripts/request-router.py"
+SCRIPT_DIR = "/home/lanky/scripts"
+
+WELCOME = (
+    "Hi Lanky! I'm your LankyServer assistant.\n\n"
+    "I can help with:\n"
+    "• Server status &amp; agent reports\n"
+    "• Restart containers\n"
+    "• Check media, backups, network, SSL\n"
+    "• Calendar &amp; email (PA mode)\n\n"
+    "Just ask in plain English."
+)
+
+
+def load_allowed_chats() -&gt; set[int]:
+    try:
+        ids = set()
+        for line in open(ALLOWED_CHAT_FILE).read().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                ids.add(int(line))
+        return ids
+    except OSError:
+        return set()
+
+
+def run_router(text: str) -&gt; str:
+    try:
+        result = subprocess.run(
+            ["python3", ROUTER, text],
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+        out = (result.stdout + result.stderr).strip()
+        return out if out else "Done — no output returned."
+    except subprocess.TimeoutExpired:
+        return "Request timed out (&gt;90s). The script may still be running in the background."
+    except Exception as e:
+        return f"Error running request: {e}"
+
+
+async def check_auth(update: Update) -&gt; bool:
+    allowed = load_allowed_chats()
+    if not allowed:
+        return True  # no allowlist = open (first-run mode)
+    uid = update.effective_user.id
+    cid = update.effective_chat.id
+    if uid in allowed or cid in allowed:
+        return True
+    log.warning("Blocked message from user=%s chat=%s", uid, cid)
+    await update.message.reply_text(
+        "Sorry, you're not authorised to use this bot."
+    )
+    return False
+
+
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -&gt; None:
+    if not await check_auth(update):
+        return
+    await update.message.reply_text(WELCOME)
+
+
+async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -&gt; None:
+    """Reply with the user's chat/user IDs — useful for setting up allowlist."""
+    uid = update.effective_user.id
+    cid = update.effective_chat.id
+    uname = update.effective_user.username or "no username"
+    await update.message.reply_text(
+        f"Your user ID: {uid}\nChat ID: {cid}\nUsername: @{uname}\n\n"
+        f"Add {uid} to {ALLOWED_CHAT_FILE} to authorise yourself."
+    )
+
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -&gt; None:
+    if not await check_auth(update):
+        return
+    await update.message.reply_text("Checking agent team status...")
+    reply = run_router("what is the status of all agents")
+    await update.message.reply_text(reply[:4000])
+
+
+async def cmd_pa(update: Update, context: ContextTypes.DEFAULT_TYPE) -&gt; None:
+    if not await check_auth(update):
+        return
+    result = subprocess.run(
+        ["python3", f"{SCRIPT_DIR}/personal-assistant.py", "summary"],
+        capture_output=True, text=True, timeout=60,
+    )
+    out = (result.stdout + result.stderr).strip() or "PA summary unavailable."
+    await update.message.reply_text(out[:4000])
+
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -&gt; None:
+    if not await check_auth(update):
+        return
+    text = update.message.text or ""
+    if not text:
+        return
+    log.info("Message from %s: %s", update.effective_user.id, text[:80])
+    # Show typing indicator
+    await context.bot.send_chat_action(
+        chat_id=update.effective_chat.id, action="typing"
+    )
+    reply = await asyncio.to_thread(run_router, text)
+    # Telegram message limit is 4096 chars — split if needed
+    for chunk in [reply[i:i+4000] for i in range(0, len(reply), 4000)]:
+        await update.message.reply_text(chunk)
+
+
+def main() -&gt; None:
+    try:
+        token = open(TOKEN_FILE).read().strip()
+    except OSError:
+        log.error("Token file not found at %s", TOKEN_FILE)
+        sys.exit(1)
+
+    app = Application.builder().token(token).build()
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("id", cmd_id))
+    app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("pa", cmd_pa))
+    app.add_handler(MessageHandler(filters.TEXT &amp; ~filters.COMMAND, handle_message))
+
+    log.info("LankyServer Telegram bot starting (polling)...")
+    app.run_polling(drop_pending_updates=True)
+
+
+if __name__ == "__main__":
+    main()</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">telegram-bot.py · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

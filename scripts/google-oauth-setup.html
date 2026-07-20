@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>google-oauth-setup.py — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: google-oauth-setup.py">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">google-oauth-setup.py</h1>
+    <div class="machine-meta">
+      <span class="pill">python</span>
+      <span class="pill">45 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">One-time Google OAuth setup granting Gmail + Calendar access for the assistant.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="python"><code>#!/usr/bin/env python3
+"""One-time Google OAuth setup for Gmail + Calendar access.
+Run this on the SERVER after placing credentials.json there.
+"""
+import json
+import os
+import sys
+
+CREDS_FILE = "/home/lanky/secrets/google-credentials.json"
+TOKEN_FILE = "/home/lanky/secrets/google-token.json"
+
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/calendar.events",
+]
+
+try:
+    from google_auth_oauthlib.flow import InstalledAppFlow
+except ImportError:
+    print("ERROR: google-auth-oauthlib not installed.")
+    sys.exit(1)
+
+if not os.path.exists(CREDS_FILE):
+    print(f"ERROR: {CREDS_FILE} not found.")
+    print("Please complete the Google Cloud Console setup first.")
+    sys.exit(1)
+
+print("Starting Google OAuth flow...")
+print("A URL will be printed. Open it in your browser on any device.")
+print()
+
+flow = InstalledAppFlow.from_client_secrets_file(CREDS_FILE, SCOPES)
+# Use console flow (no local server needed)
+flow.run_local_server = None
+creds = flow.run_console()
+
+os.makedirs(os.path.dirname(TOKEN_FILE), exist_ok=True)
+with open(TOKEN_FILE, "w") as f:
+    f.write(creds.to_json())
+os.chmod(TOKEN_FILE, 0o600)
+
+print(f"\nSuccess! Token saved to {TOKEN_FILE}")
+print("The personal assistant can now access Gmail and Google Calendar.")</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">google-oauth-setup.py · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

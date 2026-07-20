@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>healthcheck.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: healthcheck.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">healthcheck.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">297 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Full server healthcheck (v2) — services, mounts, containers, disk and GPU in one pass.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/bin/bash
+
+############################################
+# LANKY SERVER HEALTHCHECK v2
+############################################
+
+set -o pipefail
+export LANG=C
+
+####################
+# CONFIG
+####################
+
+PROTECTED=("n8n" "ollama")
+
+MOUNTS=("/mnt/jelly" "/mnt/nas")
+
+PORTS=(
+  "8123:HomeAssistant"
+  "8080:Zigbee2MQTT"
+  "3000:OpenWebUI"
+)
+
+CERT_DOMAINS=(
+  "home.yourdomain.com"
+)
+
+MIN_UPTIME=3600        # 1 hour
+MAX_MEM=85             # %
+MAX_CPU=12.0           # load avg; 16-core host, amber near sustained saturation
+MAX_DISK=85            # %
+MAX_CERT_DAYS=30
+LOG_LOOKBACK="15 minutes ago"
+
+####################
+# CORE
+####################
+
+STATUS="GREEN"
+WARNINGS=()
+ERRORS=()
+
+timestamp() { date +"[%H:%M:%S]"; }
+
+log() { echo "$(timestamp) $1"; }
+
+log "Starting healthcheck..."
+
+####################
+# DOCKER
+####################
+
+log "Checking Docker..."
+
+if ! systemctl is-active --quiet docker; then
+  ERRORS+=("Docker stopped")
+  log "ERROR: Docker stopped"
+else
+  log "Docker OK"
+fi
+
+####################
+# CONTAINERS
+####################
+
+log "Checking containers..."
+
+for c in $(docker ps -q); do
+
+  NAME=$(docker inspect --format='{{.Name}}' "$c" | tr -d '/')
+  STATE=$(docker inspect --format='{{.State.Status}}' "$c")
+
+  if [[ " ${PROTECTED[*]} " =~ " $NAME " ]]; then
+    log "Skipping protected: $NAME"
+    continue
+  fi
+
+  if [ "$STATE" != "running" ]; then
+    WARNINGS+=("Container down: $NAME ($STATE)")
+    log "WARNING: $NAME $STATE"
+  else
+    log "OK: $NAME"
+  fi
+
+done
+
+####################
+# DISK
+####################
+
+log "Checking disk..."
+
+DISK=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
+
+if [ "$DISK" -gt "$MAX_DISK" ]; then
+  WARNINGS+=("Disk high: $DISK%")
+  log "WARNING: Disk $DISK%"
+else
+  log "Disk OK: $DISK%"
+fi
+
+####################
+# MOUNTS
+####################
+
+log "Checking mounts..."
+
+for m in "${MOUNTS[@]}"; do
+
+  if mountpoint -q "$m"; then
+    log "OK: $m"
+  else
+    WARNINGS+=("Mount missing: $m")
+    log "WARNING: Missing $m"
+  fi
+
+done
+
+####################
+# BAD FILES
+####################
+
+log "Checking temp/corrupt files..."
+
+BAD=$(find /mnt/jelly /mnt/nas \
+  -type f \( -size 0 -o -name "*.part" -o -name "*.tmp" \) \
+  2&gt;/dev/null | wc -l)
+
+if [ "$BAD" -gt 0 ]; then
+  WARNINGS+=("Bad files: $BAD")
+  log "WARNING: $BAD bad files"
+else
+  log "Files OK"
+fi
+
+####################
+# SYSTEM LOGS
+####################
+
+log "Checking system errors..."
+
+SYSERR=$(journalctl -p 3 --since "$LOG_LOOKBACK" --no-pager \
+  | grep -Ev 'networkctl\[[0-9]+\]: Interface "veth[[:xdigit:]]+" not found\.' \
+  | wc -l)
+
+if [ "$SYSERR" -gt 10 ]; then
+  WARNINGS+=("System errors: $SYSERR")
+  log "WARNING: $SYSERR errors"
+else
+  log "Logs OK"
+fi
+
+####################
+# CONTAINER LOGS
+####################
+
+log "Checking container logs..."
+
+for c in $(docker ps -q); do
+
+  NAME=$(docker inspect --format='{{.Name}}' "$c" | tr -d '/')
+
+  COUNT=$(docker logs --since "$LOG_LOOKBACK" "$c" 2&gt;/dev/null \
+    | grep -Eiv "Subscription Liveness timeout|Subscription failed with CHIP Error 0x00000032|Re-Subscription succeeded|Failed to reset WiFi statistic counts" \
+    | grep -Ei "error|panic|fail|critical" | wc -l)
+
+  if [ "$COUNT" -gt 20 ]; then
+    WARNINGS+=("Log errors: $NAME ($COUNT)")
+    log "WARNING: $NAME $COUNT errors"
+  else
+    log "Logs OK: $NAME"
+  fi
+
+done
+
+####################
+# MEMORY
+####################
+
+log "Checking memory..."
+
+MEM=$(free | awk '/Mem:/ {printf "%.0f", $3/$2*100}')
+
+if [ "$MEM" -gt "$MAX_MEM" ]; then
+  WARNINGS+=("High RAM: $MEM%")
+  log "WARNING: RAM $MEM%"
+else
+  log "RAM OK: $MEM%"
+fi
+
+####################
+# CPU LOAD
+####################
+
+log "Checking CPU load..."
+
+LOAD=$(awk '{print $1}' /proc/loadavg)
+
+if (( $(echo "$LOAD &gt; $MAX_CPU" | bc -l) )); then
+  WARNINGS+=("High CPU load: $LOAD")
+  log "WARNING: Load $LOAD"
+else
+  log "Load OK: $LOAD"
+fi
+
+####################
+# UPTIME
+####################
+
+log "Checking uptime..."
+
+UPTIME=$(cut -d. -f1 /proc/uptime)
+
+if [ "$UPTIME" -lt "$MIN_UPTIME" ]; then
+  WARNINGS+=("Recent reboot: ${UPTIME}s")
+  log "WARNING: Reboot detected"
+else
+  log "Uptime OK"
+fi
+
+####################
+# PORTS
+####################
+
+log "Checking ports..."
+
+for p in "${PORTS[@]}"; do
+
+  PORT=${p%%:*}
+  NAME=${p##*:}
+
+  if ss -ltn | grep -q ":$PORT "; then
+    log "OK: $NAME ($PORT)"
+  else
+    WARNINGS+=("Port down: $NAME ($PORT)")
+    log "WARNING: $NAME port $PORT down"
+  fi
+
+done
+
+####################
+#OS UPDATES
+####################
+
+log "Checking updates..."
+
+UPDATES=$(apt list --upgradable 2&gt;/dev/null | grep -vc "Listing")
+
+if [ "$UPDATES" -gt 0 ]; then
+  WARNINGS+=("Updates pending: $UPDATES")
+  log "WARNING: $UPDATES updates"
+else
+  log "Updates OK"
+fi
+
+####################
+# REBOOT
+####################
+
+log "Checking reboot..."
+
+if [ -f /var/run/reboot-required ]; then
+  WARNINGS+=("Reboot required")
+  log "WARNING: Reboot required"
+else
+  log "No reboot needed"
+fi
+
+####################
+# STATUS
+####################
+
+if [ "${#ERRORS[@]}" -gt 0 ]; then
+  STATUS="RED"
+elif [ "${#WARNINGS[@]}" -gt 0 ]; then
+  STATUS="AMBER"
+else
+  STATUS="GREEN"
+fi
+
+####################
+# JSON
+####################
+
+log "Writing JSON..."
+
+jq -n \
+  --arg status "$STATUS" \
+  --argjson warnings "$(if [ ${#WARNINGS[@]} -eq 0 ]; then echo '[]'; else printf '%s\n' "${WARNINGS[@]}" | jq -R 'select(length &gt; 0)' | jq -s .; fi)" \
+  --argjson errors "$(if [ ${#ERRORS[@]} -eq 0 ]; then echo '[]'; else printf '%s\n' "${ERRORS[@]}" | jq -R 'select(length &gt; 0)' | jq -s .; fi)" \
+'{
+  status: $status,
+  warnings: $warnings,
+  errors: $errors
+}'
+
+log "Healthcheck complete"</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">healthcheck.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

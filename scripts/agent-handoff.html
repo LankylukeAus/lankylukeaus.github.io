@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>agent-handoff.py — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: agent-handoff.py">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">agent-handoff.py</h1>
+    <div class="machine-meta">
+      <span class="pill">python</span>
+      <span class="pill">309 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Structured handoff of work and context between agents.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="python"><code>#!/usr/bin/env python3
+import datetime
+import fcntl
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+
+AGENTS = {
+    "cyber",
+    "media",
+    "docker",
+    "dns",
+    "backup",
+    "network",
+    "updates",
+    "nas",
+    "ssl",
+    "home-assistant-admin",
+}
+REPORT_ROOT = os.environ.get("LANKY_AGENT_REPORT_ROOT", "/home/lanky/reports")
+STATE_DIR = os.environ.get("LANKY_HANDOFF_STATE_DIR", "/var/lib/lanky-agent-handoff")
+STATE_FILE = os.path.join(STATE_DIR, "active.json")
+LEDGER = os.path.join(REPORT_ROOT, "agent-handoffs.jsonl")
+INBOX_DIR = os.environ.get("LANKY_HANDOFF_INBOX_DIR", "/home/codex/agents/handoffs")
+MAX_CHAIN_DEPTH = 3
+
+
+def now() -&gt; str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def run(command: list[str], timeout: int = 420) -&gt; subprocess.CompletedProcess:
+    try:
+        return subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return subprocess.CompletedProcess(command, 124, f"Timed out: {exc}")
+
+
+def load_json(path: str) -&gt; dict:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.load(handle)
+            return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_json(path: str, value: dict) -&gt; None:
+    temporary = path + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(value, handle, indent=2, ensure_ascii=True)
+        handle.write("\n")
+    os.replace(temporary, path)
+
+
+def with_state_lock(callback):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(STATE_FILE + ".lock", "a+", encoding="ascii") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return callback()
+
+
+def write_ledger(record: dict) -&gt; None:
+    os.makedirs(os.path.dirname(LEDGER), exist_ok=True)
+    with open(LEDGER, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+
+
+def explicit_findings(source: str, report: str) -&gt; list[dict]:
+    rows = []
+    pattern = re.compile(
+        r"(?im)^\s*(?:[-*]\s*)?AGENT HANDOFF:\s*"
+        r"([a-z0-9-]+)\s*\|\s*([a-z0-9_.-]+)\s*\|\s*(.+?)\s*$"
+    )
+    for target, finding_type, detail in pattern.findall(report):
+        if target in AGENTS and target != source:
+            rows.append({
+                "source": source,
+                "target": target,
+                "type": finding_type,
+                "detail": detail.strip(),
+            })
+    return rows
+
+
+def cyber_findings(report: str) -&gt; list[dict]:
+    rows = []
+
+    external = re.search(r"External failed SSH authentication events:\s*(\d+)", report)
+    if external and int(external.group(1)):
+        rows.append({
+            "target": "ops-nas-admin",
+            "type": "ssh_external_failures",
+            "detail": external.group(0),
+        })
+
+    for item in re.findall(r"Invalid SSH username[^\n]+", report):
+        if "none" not in item.lower():
+            rows.append({
+                "target": "ops-nas-admin",
+                "type": "invalid_ssh_user",
+                "detail": item,
+            })
+
+    warning_names = re.search(r"OpenClaw warnings:\s*([^\n]+)", report)
+    if warning_names and "none" not in warning_names.group(1).lower():
+        rows.append({
+            "target": "ops-nas-admin",
+            "type": "openclaw_security_warning",
+            "detail": warning_names.group(0),
+        })
+
+    denied = re.search(
+        r"(?:Active )?sudo/authentication failures involving the lanky service account"
+        r"(?: \(last hour\))?:\s*(\d+)",
+        report,
+    )
+    if denied and int(denied.group(1)):
+        rows.append({
+            "target": "ops-nas-admin",
+            "type": "service_account_auth_failures",
+            "detail": denied.group(0),
+        })
+
+    if re.search(r"(?m)^- FAILED:|report was unavailable", report, re.I):
+        rows.append({
+            "target": "ops-nas-admin",
+            "type": "cyber_collection_failure",
+            "detail": "Cyber security data collection or remediation failed.",
+        })
+
+    lower = report.lower()
+    if "malware" in lower or "infected files:" in lower:
+        rows.append({
+            "target": "jellyfin-admin" if "/mnt/jelly" in lower else "ops-nas-admin",
+            "type": "malware_finding",
+            "detail": "Malware or antivirus finding is present.",
+        })
+    if "homeassistant" in lower and ("critical cve" in lower or "high cve" in lower):
+        rows.append({
+            "target": "home-assistant-admin",
+            "type": "home_assistant_cve",
+            "detail": "Home Assistant image has a high or critical CVE finding.",
+        })
+    if any(name in lower for name in ("jellyfin", "sonarr", "radarr", "prowlarr")) and (
+        "critical cve" in lower or "high cve" in lower
+    ):
+        rows.append({
+            "target": "jellyfin-admin",
+            "type": "media_cve",
+            "detail": "Media stack image has a high or critical CVE finding.",
+        })
+    return rows
+
+
+def findings(source: str, report: str) -&gt; list[dict]:
+    rows = explicit_findings(source, report)
+    if source == "cyber-analyst":
+        rows.extend({"source": source, **item} for item in cyber_findings(report))
+
+    unique = {}
+    for row in rows:
+        identity = f"{row['source']}|{row['target']}|{row['type']}|{row['detail']}"
+        finding_id = hashlib.sha256(identity.encode()).hexdigest()[:16]
+        unique[finding_id] = {**row, "id": finding_id}
+    return list(unique.values())
+
+
+def incoming_chain_depth(source: str) -&gt; int:
+    target_dir = os.path.join(INBOX_DIR, source)
+    try:
+        paths = [
+            os.path.join(target_dir, name)
+            for name in os.listdir(target_dir)
+            if name.endswith(".json")
+        ]
+    except OSError:
+        return 0
+    depths = [int(load_json(path).get("chain_depth", 0)) for path in paths]
+    return max(depths, default=-1) + 1
+
+
+def acknowledgement(report: str, finding_id: str) -&gt; tuple[str, str]:
+    if f"HANDOFF FIXED: Agent handoff {finding_id}" in report:
+        return "fixed", "Recipient reports a verified fix."
+    if f"HANDOFF ESCALATED: Agent handoff {finding_id}" in report:
+        return "escalated_l3", "Recipient accepted the issue and escalated it to L3."
+    if f"HANDOFF ACCEPTED: Agent handoff {finding_id}" in report:
+        return "accepted", "Recipient accepted the issue for action or monitoring."
+    return "not_acknowledged", "Recipient report did not acknowledge the handoff."
+
+
+def dispatch(item: dict) -&gt; dict:
+    target_dir = os.path.join(INBOX_DIR, item["target"])
+    os.makedirs(target_dir, exist_ok=True)
+    inbox = os.path.join(target_dir, f"{item['id']}.json")
+    payload = {**item, "created": now(), "chain_depth": int(item.get("chain_depth", 0))}
+    save_json(inbox, payload)
+
+    result = run([
+        "sudo", "-n", "/usr/bin/systemctl", "start",
+        f"lanky-agent@{item['target']}.service",
+    ])
+    if result.returncode:
+        status = "dispatch_failed"
+        detail = result.stdout.strip() or "systemd did not provide an error"
+    else:
+        report_path = os.path.join(REPORT_ROOT, f"agent-{item['target']}-latest.md")
+        try:
+            with open(report_path, encoding="utf-8", errors="replace") as handle:
+                recipient_report = handle.read()
+        except OSError as exc:
+            status, detail = "not_acknowledged", str(exc)
+        else:
+            status, detail = acknowledgement(recipient_report, item["id"])
+
+    try:
+        os.unlink(inbox)
+    except OSError:
+        pass
+    return {**payload, "status": status, "result": detail, "timestamp": now()}
+
+
+def main() -&gt; int:
+    if len(sys.argv) != 2 or sys.argv[1] not in AGENTS:
+        print(f"Usage: {sys.argv[0]} &lt;{'|'.join(sorted(AGENTS))}&gt;", file=sys.stderr)
+        return 2
+
+    source = sys.argv[1]
+    report_path = os.path.join(REPORT_ROOT, f"agent-{source}-latest.md")
+    try:
+        with open(report_path, encoding="utf-8", errors="replace") as handle:
+            report = handle.read()
+    except OSError as exc:
+        print(f"Agent handoff failed: {exc}", file=sys.stderr)
+        return 1
+
+    os.makedirs(STATE_DIR, exist_ok=True)
+    os.makedirs(INBOX_DIR, exist_ok=True)
+    depth = incoming_chain_depth(source)
+    current = {
+        item["id"]: {**item, "chain_depth": depth}
+        for item in findings(source, report)
+    }
+    resolved = []
+
+    def reserve_work() -&gt; list[dict]:
+        active = load_json(STATE_FILE)
+        for finding_id, previous in list(active.items()):
+            if previous.get("source") == source and finding_id not in current:
+                resolved.append({**previous, "status": "resolved", "timestamp": now()})
+                del active[finding_id]
+
+        pending = []
+        for finding_id, item in current.items():
+            previous = active.get(finding_id)
+            if previous and previous.get("status") in {"fixed", "accepted", "escalated_l3"}:
+                continue
+            active[finding_id] = {
+                **item,
+                "status": "dispatching",
+                "timestamp": now(),
+            }
+            pending.append(item)
+        save_json(STATE_FILE, active)
+        return pending
+
+    pending = with_state_lock(reserve_work)
+    for item in resolved:
+        write_ledger(item)
+
+    for item in pending:
+        finding_id = item["id"]
+        if int(item.get("chain_depth", 0)) &gt;= MAX_CHAIN_DEPTH:
+            result = {
+                **item,
+                "status": "chain_limit",
+                "result": "Maximum cross-agent handoff depth reached; L3 review is required.",
+                "timestamp": now(),
+            }
+        else:
+            result = dispatch(item)
+
+        def store_result() -&gt; None:
+            active = load_json(STATE_FILE)
+            active[finding_id] = result
+            save_json(STATE_FILE, active)
+
+        with_state_lock(store_result)
+        write_ledger(result)
+        print(f"{finding_id}: {source} -&gt; {item['target']}: {result['status']}")
+
+    if not current:
+        print(f"No cross-agent handoffs requested by {source}.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">agent-handoff.py · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

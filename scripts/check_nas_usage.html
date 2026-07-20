@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>check_nas_usage.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: check_nas_usage.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">check_nas_usage.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">24 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">NAS capacity check with threshold warnings.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/bin/bash
+
+NAS_PATH="/mnt/nas"
+
+echo "=== Checking processes using NAS path: $NAS_PATH ==="
+echo
+
+echo "=== lsof output (processes touching NAS) ==="
+sudo lsof +D "$NAS_PATH" 2&gt;/dev/null
+echo
+
+echo "=== Top processes by disk I/O (iotop) ==="
+sudo iotop -b -n 5 -o | head
+echo
+
+echo "=== Network usage per process (nethogs 5-second sample) ==="
+sudo nethogs -t -c 5
+echo
+
+echo "=== Docker containers using NAS-mounted volumes ==="
+docker ps --format "table {{.Names}}\t{{.Mounts}}"
+echo
+
+echo "=== Done ==="</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">check_nas_usage.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

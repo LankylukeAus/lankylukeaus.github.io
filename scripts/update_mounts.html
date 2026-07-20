@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>update_mounts.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: update_mounts.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">update_mounts.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">61 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Ensures the media containers mount the shared storage path correctly after config changes.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/bin/bash
+# Auto-update Docker containers to mount /mnt/jelly
+# Containers: qbittorrent, sonarr, prowlarr, radarr
+
+set -e
+
+HOST_PATH="/mnt/jelly"
+CONTAINER_PATH="/mnt/jelly"
+
+echo "Updating Docker containers to mount $HOST_PATH..."
+
+# qbittorrent
+echo "Updating qbittorrent..."
+docker stop qbittorrent || true
+docker rm qbittorrent || true
+docker run -d \
+  --name qbittorrent \
+  -p 8080:8080 \
+  -p 6881:6881 \
+  -p 6881:6881/udp \
+  -v /srv/docker/qbittorrent/config:/config \
+  -v "$HOST_PATH":"$CONTAINER_PATH" \
+  lscr.io/linuxserver/qbittorrent:latest
+
+# sonarr
+echo "Updating sonarr..."
+docker stop sonarr || true
+docker rm sonarr || true
+docker run -d \
+  --name sonarr \
+  -p 8989:8989 \
+  -v /srv/docker/sonarr/config:/config \
+  -v "$HOST_PATH":"$CONTAINER_PATH" \
+  -v /srv/media/tvseries:/tv \
+  lscr.io/linuxserver/sonarr:latest
+
+# radarr
+echo "Updating radarr..."
+docker stop radarr || true
+docker rm radarr || true
+docker run -d \
+  --name radarr \
+  -p 7878:7878 \
+  -v /srv/docker/radarr/config:/config \
+  -v "$HOST_PATH":"$CONTAINER_PATH" \
+  -v /srv/media/movies:/movies \
+  lscr.io/linuxserver/radarr:latest
+
+# prowlarr
+echo "Updating prowlarr..."
+docker stop prowlarr || true
+docker rm prowlarr || true
+docker run -d \
+  --name prowlarr \
+  -p 9696:9696 \
+  -v /srv/docker/prowlarr/config:/config \
+  -v "$HOST_PATH":"$CONTAINER_PATH" \
+  lscr.io/linuxserver/prowlarr:latest
+
+echo "All containers updated with /mnt/jelly mount."</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">update_mounts.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

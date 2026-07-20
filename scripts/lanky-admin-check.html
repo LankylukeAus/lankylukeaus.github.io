@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lanky-admin-check.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: lanky-admin-check.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">lanky-admin-check.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">50 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Host admin snapshot — uptime, sessions and posture checks for a quick "is everything sane" read.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/usr/bin/env bash
+set -u
+REPORT_DIR=/home/lanky/reports
+mkdir -p "$REPORT_DIR"
+TMP=$(mktemp "$REPORT_DIR/lanky-admin-check.XXXXXX")
+LATEST="$REPORT_DIR/lanky-admin-check-latest.txt"
+{
+  echo "Lanky Admin Health Check"
+  echo "Generated: $(date -Is)"
+  echo "Host: $(hostname)"
+  echo
+  echo "== Uptime =="
+  uptime || true
+  who -b || true
+  test -f /var/run/reboot-required &amp;&amp; echo "Reboot required: yes" || echo "Reboot required: no"
+  echo
+  echo "== Mounts =="
+  for m in /mnt/nas /mnt/jelly; do
+    if mountpoint -q "$m"; then
+      echo "OK: $m mounted"
+      findmnt -rn --target "$m" || true
+    else
+      echo "BAD: $m not mounted"
+    fi
+  done
+  echo
+  echo "== Disk Space =="
+  df -hT / /home /mnt/nas /mnt/jelly 2&gt;/dev/null || df -hT || true
+  echo
+  echo "== Systemd Failed Units =="
+  systemctl --failed --no-pager || true
+  echo
+  echo "== Docker Summary =="
+  if systemctl is-active --quiet docker; then
+    echo "Docker service: active"
+  else
+    echo "Docker service: NOT active"
+  fi
+  docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}' | sort || true
+  echo
+  echo "== Docker Problems =="
+  docker ps -a --filter status=exited --filter status=dead --filter status=restarting --format '{{.Names}}\t{{.Status}}' || true
+  docker ps --filter health=unhealthy --format '{{.Names}}\t{{.Status}}' || true
+  echo
+  echo "== Recent High Priority Journal Entries =="
+  journalctl -p warning..alert --since '24 hours ago' --no-pager -n 80 || true
+} &gt; "$TMP" 2&gt;&amp;1
+chmod 0644 "$TMP"
+mv "$TMP" "$LATEST"
+echo "$LATEST"</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">lanky-admin-check.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

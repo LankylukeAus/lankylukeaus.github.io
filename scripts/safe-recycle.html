@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>safe-recycle.py — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: safe-recycle.py">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">safe-recycle.py</h1>
+    <div class="machine-meta">
+      <span class="pill">python</span>
+      <span class="pill">79 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Fail-safe deletion — moves files to a <code>@Recycle</code> area with a JSON audit trail instead of ever hard-deleting.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="python"><code>#!/usr/bin/env python3
+import datetime
+import json
+import os
+import shutil
+import sys
+import uuid
+
+ROOTS = ("/mnt/nas", "/mnt/jelly")
+REPORT_DIR = "/home/lanky/reports"
+LOG_PATH = os.path.join(REPORT_DIR, "media-recycle-audit.jsonl")
+
+
+def resolve_source(value: str) -&gt; tuple[str, str]:
+    path = os.path.realpath(value)
+    for root in ROOTS:
+        root_real = os.path.realpath(root)
+        if os.path.commonpath([path, root_real]) != root_real:
+            continue
+        relative = os.path.relpath(path, root_real)
+        if relative == "." or relative.startswith("@Recycle" + os.sep):
+            raise ValueError(f"refusing recycle source: {value}")
+        return path, root_real
+    raise ValueError(f"path is outside approved NAS roots: {value}")
+
+
+def recycle(source_value: str, reason: str) -&gt; dict:
+    source, root = resolve_source(source_value)
+    if not os.path.lexists(source):
+        raise FileNotFoundError(source)
+
+    stamp = datetime.datetime.now().astimezone()
+    relative = os.path.relpath(source, root)
+    destination = os.path.join(
+        root,
+        "@Recycle",
+        "CodexReview",
+        stamp.strftime("%Y-%m-%d"),
+        relative,
+    )
+    if os.path.lexists(destination):
+        base, extension = os.path.splitext(destination)
+        destination = f"{base}.{stamp.strftime('%H%M%S')}.{uuid.uuid4().hex[:8]}{extension}"
+
+    os.makedirs(os.path.dirname(destination), exist_ok=True)
+    shutil.move(source, destination)
+    record = {
+        "timestamp": stamp.isoformat(),
+        "source": source,
+        "destination": destination,
+        "reason": reason,
+        "action": "moved_to_recycle",
+    }
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    with open(LOG_PATH, "a", encoding="utf-8") as log:
+        log.write(json.dumps(record, ensure_ascii=True) + "\n")
+    return record
+
+
+def main() -&gt; int:
+    if len(sys.argv) &lt; 3:
+        print("Usage: safe-recycle.py &lt;reason&gt; &lt;path&gt; [path ...]", file=sys.stderr)
+        return 2
+
+    reason = sys.argv[1]
+    failures = 0
+    for value in sys.argv[2:]:
+        try:
+            record = recycle(value, reason)
+            print(f"RECYCLED: {record['source']}")
+            print(f"REVIEW AT: {record['destination']}")
+        except Exception as error:
+            failures += 1
+            print(f"ERROR: {value}: {error}", file=sys.stderr)
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">safe-recycle.py · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

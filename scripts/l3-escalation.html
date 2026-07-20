@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>l3-escalation.py — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: l3-escalation.py">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">l3-escalation.py</h1>
+    <div class="machine-meta">
+      <span class="pill">python</span>
+      <span class="pill">203 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Encodes the issues only a human (L3) can decide — with the affected system, the why, and the proposed change.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="python"><code>#!/usr/bin/env python3
+import datetime
+import hashlib
+import json
+import os
+import subprocess
+import sys
+
+HANDOFF_FILE = "/var/lib/lanky-cyber-handoff/active.json"
+STATE_DIR = "/var/lib/lanky-l3-escalations"
+QUEUE_FILE = os.path.join(STATE_DIR, "active.json")
+SENT_FILE = os.path.join(STATE_DIR, "last-sent.sha256")
+LEDGER = "/home/lanky/reports/l3-escalations.jsonl"
+GROUP_ID = os.environ.get("LANKY_ALERT_GROUP_ID", "&lt;WHATSAPP_GROUP_ID&gt;")
+
+
+PLANS = {
+    "gateway.trusted_proxies_missing": {
+        "title": "OpenClaw reverse-proxy trust",
+        "affected": "OpenClaw gateway and Control UI",
+        "why_l3": "L2 cannot change authentication trust boundaries or guess which proxy IPs are trusted.",
+        "change": (
+            "If the Control UI is local-only, document that decision and make no configuration change. "
+            "If it is reverse-proxied, identify the exact proxy source IP and add only that IP to "
+            "gateway.trustedProxies, then restart and re-audit OpenClaw."
+        ),
+        "risk": "Trusting the wrong address can permit spoofed proxy headers; leaving it unset is unsafe if a proxy exposes the UI.",
+        "reply": "L3 216bf5ccfc65a0a4 local-only OR L3 216bf5ccfc65a0a4 proxy &lt;exact IP&gt;",
+    },
+    "security.trust_model.multi_user_heuristic": {
+        "title": "OpenClaw multi-user trust boundary",
+        "affected": "WhatsApp Service Desk and credentials available to OpenClaw",
+        "why_l3": "L2 cannot decide whether WhatsApp group members are mutually trusted or redesign identity isolation.",
+        "change": (
+            "Confirm every allowlisted group member is trusted as the same operator. If not, separate users "
+            "onto distinct gateways and credentials; until separated, enable full sandboxing and restrict runtime, "
+            "filesystem, and web tools to the minimum required."
+        ),
+        "risk": "A user inside the allowed group may gain access to another user's tools, data, or credentials.",
+        "reply": "L3 390b1f5c97b413f7 trusted-users OR L3 390b1f5c97b413f7 separate-users",
+    },
+    "plugins.installs_unpinned_npm_specs": {
+        "title": "Pin the OpenClaw Brave plugin",
+        "affected": "OpenClaw Brave Search plugin",
+        "why_l3": "Changing plugin supply-chain configuration and restarting the gateway is outside L2 authority.",
+        "change": (
+            "Replace the unpinned install record @openclaw/brave-plugin with the currently installed exact version "
+            "@openclaw/brave-plugin@2026.6.1, restart OpenClaw, and verify the warning clears."
+        ),
+        "risk": "Low operational risk. Pinning prevents an unintended future plugin version from being selected.",
+        "reply": "approve L3 db96ae6b643964b0",
+    },
+}
+
+
+def load_json(path: str) -&gt; dict:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.load(handle)
+            return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_json(path: str, value: dict) -&gt; None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temporary = path + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(value, handle, indent=2, ensure_ascii=True)
+        handle.write("\n")
+    os.replace(temporary, path)
+
+
+def send(message: str) -&gt; bool:
+    result = subprocess.run(
+        [
+            "sudo", "-u", "lanky", "-H", "openclaw", "message", "send",
+            "--channel", "whatsapp", "--account", "default",
+            "--target", GROUP_ID, "--message", message,
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=120,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def build_queue() -&gt; dict:
+    handoffs = load_json(HANDOFF_FILE)
+    previous = load_json(QUEUE_FILE)
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    queue = {}
+    for finding_id, handoff in handoffs.items():
+        if handoff.get("status") != "escalated_l3":
+            continue
+        plan = PLANS.get(handoff.get("detail"))
+        if not plan:
+            # Historical authentication counters are not change requests by themselves.
+            continue
+        prior = previous.get(finding_id, {})
+        queue[finding_id] = {
+            "id": finding_id,
+            "status": prior.get("status", "pending"),
+            "created": prior.get("created", now),
+            "source": handoff.get("source", "unknown"),
+            "owner": handoff.get("target", "unknown"),
+            **plan,
+        }
+        if prior.get("response"):
+            queue[finding_id]["response"] = prior["response"]
+            queue[finding_id]["responded"] = prior.get("responded")
+    write_json(QUEUE_FILE, queue)
+    return queue
+
+
+def pending(queue: dict) -&gt; list[dict]:
+    return [item for item in queue.values() if item.get("status") == "pending"]
+
+
+def format_item(item: dict, compact: bool = False) -&gt; str:
+    if compact:
+        return (
+            f"L3 {item['id']}: {item['title']}\n"
+            f"Needed: {item['change']}\n"
+            f"Reply exactly: {item['reply']}"
+        )
+    return (
+        f"L3 CHANGE REQUIRES YOUR DECISION\n"
+        f"ID: {item['id']}\n"
+        f"Issue: {item['title']}\n"
+        f"Affected: {item['affected']}\n"
+        f"Why L2 stopped: {item['why_l3']}\n"
+        f"Proposed fix: {item['change']}\n"
+        f"Risk: {item['risk']}\n"
+        f"Reply exactly: {item['reply']}"
+    )
+
+
+def notify(queue: dict, force: bool = False) -&gt; int:
+    items = pending(queue)
+    if not items:
+        return 0
+    content = "\n\n".join(format_item(item) for item in items)
+    digest = hashlib.sha256(content.encode()).hexdigest()
+    try:
+        previous = open(SENT_FILE, encoding="ascii").read().strip()
+    except OSError:
+        previous = ""
+    if force or digest != previous:
+        if not send(content):
+            print("Failed to send L3 escalation to WhatsApp.", file=sys.stderr)
+            return 1
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(SENT_FILE, "w", encoding="ascii") as handle:
+            handle.write(digest + "\n")
+    return 0
+
+
+def record_response(original: str, queue: dict) -&gt; int:
+    lowered = original.lower()
+    finding_id = next((item_id for item_id in queue if item_id.lower() in lowered), None)
+    if not finding_id:
+        print("I could not match that response to a pending L3 ID.")
+        print("Ask: show pending L3 changes")
+        return 0
+    item = queue[finding_id]
+    item["status"] = "approved" if lowered.startswith("approve l3") else "decision_received"
+    item["response"] = original
+    item["responded"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    write_json(QUEUE_FILE, queue)
+    os.makedirs(os.path.dirname(LEDGER), exist_ok=True)
+    with open(LEDGER, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(item, ensure_ascii=True) + "\n")
+    try:
+        os.unlink(SENT_FILE)
+    except OSError:
+        pass
+    print(f"Recorded your L3 response for {finding_id}: {original}")
+    print("The Agent Manager will now track it as an authorized L3 change until implementation and verification.")
+    return 0
+
+
+def main() -&gt; int:
+    command = sys.argv[1].lower() if len(sys.argv) &gt; 1 else "sync"
+    queue = build_queue()
+    if command == "list":
+        items = pending(queue)
+        if not items:
+            print("There are no pending L3 changes.")
+            return 0
+        print("\n\n".join(format_item(item, compact=True) for item in items))
+        return 0
+    if command == "respond":
+        return record_response(" ".join(sys.argv[2:]).strip(), queue)
+    if command == "notify":
+        return notify(queue, force="--force" in sys.argv[2:])
+    return notify(queue)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">l3-escalation.py · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

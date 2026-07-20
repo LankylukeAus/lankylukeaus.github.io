@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>server-hardening-check.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: server-hardening-check.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">server-hardening-check.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">123 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Hardening audit that walks SSH config, sudo, firewall and kernel settings and prints a <code>[PASS]/[FAIL]</code> per control.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/bin/bash
+
+echo "========================================="
+echo " Server Hardening Audit"
+echo "========================================="
+echo ""
+
+FAIL=0
+PASS=0
+
+check_pass() {
+    echo "[PASS] $1"
+    PASS=$((PASS+1))
+}
+
+check_fail() {
+    echo "[FAIL] $1"
+    FAIL=$((FAIL+1))
+}
+
+echo "Checking OS updates..."
+
+UPDATES=$(apt list --upgradable 2&gt;/dev/null | grep -v Listing | wc -l)
+
+if [ "$UPDATES" -eq 0 ]; then
+    check_pass "System fully updated"
+else
+    check_fail "$UPDATES packages need updating"
+fi
+
+echo ""
+echo "Checking firewall..."
+
+if sudo ufw status | grep -q "Status: active"; then
+    check_pass "Firewall enabled"
+else
+    check_fail "Firewall NOT enabled"
+fi
+
+echo ""
+echo "Checking open ports..."
+
+OPEN_PORTS=$(ss -tuln | grep LISTEN | grep -v 127.0.0.1 | grep -v ::1)
+
+if [ -z "$OPEN_PORTS" ]; then
+    check_pass "No public listening ports"
+else
+    check_fail "Public ports open:"
+    echo "$OPEN_PORTS"
+fi
+
+echo ""
+echo "Checking Docker containers exposing ports..."
+
+EXPOSED=$(docker ps --format "{{.Names}} {{.Ports}}" | grep "0.0.0.0")
+
+if [ -z "$EXPOSED" ]; then
+    check_pass "No Docker containers exposing public ports"
+else
+    check_fail "Docker containers exposing ports:"
+    echo "$EXPOSED"
+fi
+
+echo ""
+echo "Checking Cloudflare tunnel..."
+
+if docker ps | grep -q cloudflared; then
+    check_pass "Cloudflare tunnel running"
+else
+    check_fail "Cloudflare tunnel NOT running"
+fi
+
+echo ""
+echo "Checking root SSH access..."
+
+if grep -q "PermitRootLogin no" /etc/ssh/sshd_config; then
+    check_pass "Root SSH login disabled"
+else
+    check_fail "Root SSH login enabled"
+fi
+
+echo ""
+echo "Checking password authentication..."
+
+if grep -q "PasswordAuthentication no" /etc/ssh/sshd_config; then
+    check_pass "Password login disabled (key-only SSH)"
+else
+    check_fail "Password authentication enabled"
+fi
+
+echo ""
+echo "Checking fail2ban..."
+
+if systemctl is-active --quiet fail2ban; then
+    check_pass "Fail2ban running"
+else
+    check_fail "Fail2ban NOT installed or running"
+fi
+
+echo ""
+echo "Checking Docker daemon socket permissions..."
+
+if [ -S /var/run/docker.sock ]; then
+    PERM=$(stat -c "%a" /var/run/docker.sock)
+    if [ "$PERM" = "660" ]; then
+        check_pass "Docker socket secure"
+    else
+        check_fail "Docker socket permissions weak ($PERM)"
+    fi
+fi
+
+echo ""
+echo "========================================="
+echo "Audit Complete"
+echo "PASS: $PASS"
+echo "FAIL: $FAIL"
+echo "========================================="
+
+if [ "$FAIL" -eq 0 ]; then
+    echo "System is well hardened"
+else
+    echo "System needs hardening improvements"
+fi</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">server-hardening-check.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

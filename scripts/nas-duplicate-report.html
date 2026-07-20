@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>nas-duplicate-report.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: nas-duplicate-report.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">nas-duplicate-report.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">83 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Finds and reports duplicate files across the NAS.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/usr/bin/env bash
+set -u
+REPORT_DIR=/home/lanky/reports
+mkdir -p "$REPORT_DIR"
+STAMP=$(date +%Y%m%d-%H%M%S)
+OUT="$REPORT_DIR/nas-duplicates-$STAMP.txt"
+LATEST="$REPORT_DIR/nas-duplicates-latest.txt"
+python3 - &lt;&lt;'PY' &gt; "$OUT" 2&gt;&amp;1
+import hashlib, os, subprocess, sys
+from collections import defaultdict
+from datetime import datetime
+
+roots = ['/mnt/jelly', '/mnt/nas']
+min_size = 50 * 1024 * 1024
+skip_parts = {'@Recycle', '@Recently-Snapshot', '#recycle', '.Trash', '.TemporaryItems'}
+print('NAS Duplicate Candidate Report')
+print('Generated:', datetime.now().astimezone().isoformat())
+print('Mode: report only; no files are deleted')
+print('Minimum size:', min_size, 'bytes')
+print()
+
+def mounted(path):
+    return subprocess.run(['mountpoint', '-q', path]).returncode == 0
+
+def should_skip(path):
+    parts = set(path.split(os.sep))
+    return bool(parts &amp; skip_parts)
+
+by_size = defaultdict(list)
+for root in roots:
+    if not mounted(root):
+        print(f'BAD: {root} is not mounted; skipped')
+        continue
+    print(f'Scanning {root} ...', file=sys.stderr)
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in skip_parts]
+        if should_skip(dirpath):
+            continue
+        for name in filenames:
+            path = os.path.join(dirpath, name)
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            if st.st_size &gt;= min_size:
+                by_size[st.st_size].append(path)
+
+hash_groups = defaultdict(list)
+for size, paths in by_size.items():
+    if len(paths) &lt; 2:
+        continue
+    for path in paths:
+        h = hashlib.sha256()
+        try:
+            with open(path, 'rb', buffering=1024*1024) as f:
+                for chunk in iter(lambda: f.read(1024*1024), b''):
+                    h.update(chunk)
+        except OSError as exc:
+            print(f'WARN: could not hash {path}: {exc}', file=sys.stderr)
+            continue
+        hash_groups[(size, h.hexdigest())].append(path)
+
+dupe_count = 0
+wasted = 0
+for (size, digest), paths in sorted(hash_groups.items(), key=lambda item: (-item[0][0], item[0][1])):
+    if len(paths) &lt; 2:
+        continue
+    dupe_count += 1
+    wasted += size * (len(paths) - 1)
+    print(f'== Duplicate group: {len(paths)} files, size each {size:,} bytes, possible wasted {(size*(len(paths)-1)):,} bytes ==')
+    print(f'sha256: {digest}')
+    for p in paths:
+        print(p)
+    print()
+
+print('Summary')
+print('Duplicate groups:', dupe_count)
+print('Possible wasted bytes:', wasted)
+print('Possible wasted GiB:', round(wasted / (1024**3), 2))
+PY
+chmod 0644 "$OUT"
+cp "$OUT" "$LATEST"
+echo "$OUT"</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">nas-duplicate-report.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

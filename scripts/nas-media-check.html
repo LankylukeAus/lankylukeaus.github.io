@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>nas-media-check.py — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: nas-media-check.py">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">nas-media-check.py</h1>
+    <div class="machine-meta">
+      <span class="pill">python</span>
+      <span class="pill">160 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Audits the media library for integrity and metadata issues.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="python"><code>#!/usr/bin/env python3
+import datetime
+import json
+import os
+import re
+import subprocess
+
+ROOTS = ("/mnt/jelly", "/mnt/nas")
+MEDIA_EXTENSIONS = {
+    ".avi", ".flv", ".m2ts", ".m4v", ".mkv", ".mov",
+    ".mp4", ".mpeg", ".mpg", ".ts", ".webm", ".wmv",
+}
+REPORT_DIR = "/home/lanky/reports"
+TV_UNFRIENDLY_AUDIO = {
+    "dts", "truehd", "mlp", "opus", "flac",
+    "pcm_s16le", "pcm_s24le", "pcm_s32le", "pcm_bluray", "wmalossless",
+}
+TV_UNFRIENDLY_VIDEO = {"av1", "vc1", "mpeg2video"}
+ENGLISH_TAGS = {"eng", "en", "english"}
+
+
+def mounted(path: str) -&gt; bool:
+    return subprocess.run(["mountpoint", "-q", path]).returncode == 0
+
+
+def probe(path: str) -&gt; tuple[str, list[str], str, list[str]]:
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-show_entries",
+                "format=format_name:stream=codec_type,codec_name,profile,pix_fmt:stream_tags=language",
+                "-of", "json", path,
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return "timeout", [], "ffprobe timed out", ["ffprobe timeout"]
+    if result.returncode:
+        detail = result.stderr.strip()[-500:]
+        return "unplayable", [], detail, [detail]
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        return "unplayable", [], str(error), [str(error)]
+
+    streams = data.get("streams", [])
+    video_streams = [stream for stream in streams if stream.get("codec_type") == "video"]
+    audio_streams = [stream for stream in streams if stream.get("codec_type") == "audio"]
+    if not video_streams:
+        return "unplayable", [], "no video stream", ["no video stream"]
+    if not audio_streams:
+        return "unplayable", [], "no audio stream", ["no audio stream"]
+
+    languages = sorted({
+        str(stream.get("tags", {}).get("language", "")).lower()
+        for stream in audio_streams
+        if stream.get("tags", {}).get("language")
+    })
+
+    compatibility = []
+    video = video_streams[0]
+    video_codec = str(video.get("codec_name", "")).lower()
+    video_profile = str(video.get("profile", "")).lower()
+    video_pix_fmt = str(video.get("pix_fmt", "")).lower()
+    audio_codecs = sorted({
+        str(stream.get("codec_name", "")).lower()
+        for stream in audio_streams
+        if stream.get("codec_name")
+    })
+    container = str(data.get("format", {}).get("format_name", "")).lower()
+
+    if video_codec in TV_UNFRIENDLY_VIDEO:
+        compatibility.append(f"TV-unfriendly video codec: {video_codec}")
+    if video_codec == "hevc" and ("10" in video_profile or "10" in video_pix_fmt):
+        compatibility.append("HEVC/H.265 10-bit video")
+    bad_audio = [codec for codec in audio_codecs if codec in TV_UNFRIENDLY_AUDIO]
+    if bad_audio:
+        compatibility.append("TV-unfriendly audio codec: " + ",".join(bad_audio))
+    if languages and not ENGLISH_TAGS.intersection(languages):
+        compatibility.append("no English audio language tag: " + ",".join(languages))
+    if "matroska" in container and compatibility:
+        compatibility.append("MKV container with TV-unfriendly codec/audio")
+
+    return "ok", languages, "", compatibility
+
+
+def main() -&gt; int:
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    stamp = datetime.datetime.now().astimezone()
+    report_path = os.path.join(
+        REPORT_DIR, f"nas-media-check-{stamp.strftime('%Y%m%d-%H%M%S')}.txt"
+    )
+    latest_path = os.path.join(REPORT_DIR, "nas-media-check-latest.txt")
+
+    for root in ROOTS:
+        if not mounted(root):
+            raise SystemExit(f"Refusing scan because {root} is not mounted")
+
+    checked = 0
+    unplayable = []
+    non_english = []
+    unknown_language = []
+    compatibility_risks = []
+
+    with open(report_path, "w", encoding="utf-8") as report:
+        report.write("NAS Media Compatibility and Language Report\n")
+        report.write(f"Generated: {stamp.isoformat()}\n")
+        report.write("Ambiguous files are report-only and are not moved.\n\n")
+
+        for root in ROOTS:
+            for directory, dirs, files in os.walk(root):
+                dirs[:] = [
+                    name for name in dirs
+                    if name not in {"@Recycle", "#recycle", ".Trash"}
+                ]
+                for name in files:
+                    if os.path.splitext(name)[1].lower() not in MEDIA_EXTENSIONS:
+                        continue
+                    path = os.path.join(directory, name)
+                    checked += 1
+                    status, languages, detail, compatibility = probe(path)
+                    if status != "ok":
+                        unplayable.append((path, detail))
+                    elif not languages:
+                        unknown_language.append(path)
+                    elif not {"eng", "en", "english"}.intersection(languages):
+                        non_english.append((path, ",".join(languages)))
+                    if compatibility:
+                        compatibility_risks.append((path, "; ".join(compatibility)))
+
+        report.write(f"Media files checked: {checked}\n")
+        report.write(f"Playback concerns: {len(unplayable)}\n")
+        report.write(f"TV/WebOS compatibility risks: {len(compatibility_risks)}\n")
+        report.write(f"No English audio tag: {len(non_english)}\n")
+        report.write(f"Unknown audio language: {len(unknown_language)}\n\n")
+
+        report.write("== Playback concerns (not moved) ==\n")
+        for path, detail in unplayable:
+            report.write(f"{path}\t{detail}\n")
+        report.write("\n== TV/WebOS compatibility risks (not moved) ==\n")
+        for path, detail in compatibility_risks:
+            report.write(f"{path}\t{detail}\n")
+        report.write("\n== No English audio tag (not moved) ==\n")
+        for path, languages in non_english:
+            report.write(f"{path}\t{languages}\n")
+        report.write("\n== Unknown audio language (not moved) ==\n")
+        for path in unknown_language:
+            report.write(path + "\n")
+
+    subprocess.run(["cp", report_path, latest_path], check=True)
+    print(report_path)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">nas-media-check.py · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

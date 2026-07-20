@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>nas-junk-cleanup.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: nas-junk-cleanup.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">nas-junk-cleanup.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">74 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Clears junk / temp / leftover files to reclaim space.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/usr/bin/env bash
+set -u
+MODE="${1:---dry-run}"
+if [ "$MODE" != "--dry-run" ] &amp;&amp; [ "$MODE" != "--apply" ]; then
+  echo "Usage: $0 [--dry-run|--apply]" &gt;&amp;2
+  exit 2
+fi
+REPORT_DIR=/home/lanky/reports
+mkdir -p "$REPORT_DIR"
+STAMP=$(date +%Y%m%d-%H%M%S)
+OUT="$REPORT_DIR/nas-junk-cleanup-$STAMP.txt"
+LATEST="$REPORT_DIR/nas-junk-cleanup-latest.txt"
+MIN_AGE_DAYS=7
+{
+  echo "NAS Junk Cleanup"
+  echo "Generated: $(date -Is)"
+  echo "Mode: $MODE"
+  echo "Policy: delete only obvious download residue from /mnt/nas older than ${MIN_AGE_DAYS} days; report-only for /mnt/jelly"
+  echo
+
+  for m in /mnt/nas /mnt/jelly; do
+    if ! mountpoint -q "$m"; then
+      echo "BAD: $m is not mounted; refusing to continue"
+      exit 1
+    fi
+    if ! timeout 10s ls -ld "$m" &gt;/dev/null 2&gt;&amp;1; then
+      echo "BAD: $m is not responding; refusing to continue"
+      exit 1
+    fi
+  done
+
+  echo "== /mnt/nas deletable junk candidates =="
+  tmpfile=$(mktemp)
+  trap 'rm -f "$tmpfile"' EXIT
+  timeout 20m find /mnt/nas -xdev -type f -mtime +"$MIN_AGE_DAYS" \
+    \( -iname '*.part' -o -iname '*.partial' -o -iname '*.tmp' -o -iname '*.!qB' -o -iname '*.aria2' -o -iname '*.unwanted' -o -iname '*.bad' -o -iname '*.failed' -o -iname 'Thumbs.db' -o -iname '.DS_Store' -o -ipath '*/sample/*' -o -iname '*sample*.avi' -o -iname '*sample*.mkv' -o -iname '*sample*.mp4' \) \
+    -printf '%s\t%p\n' 2&gt;/dev/null | sort -nr &gt; "$tmpfile"
+  cat "$tmpfile"
+  count=$(wc -l &lt; "$tmpfile")
+  bytes=$(awk '{s+=$1} END {printf "%.0f", s+0}' "$tmpfile")
+  echo
+  echo "Candidates: $count"
+  echo "Bytes: $bytes"
+  awk -v b="$bytes" 'BEGIN {printf "GiB: %.2f\n", b/1024/1024/1024}'
+
+  if [ "$MODE" = "--apply" ] &amp;&amp; [ "$count" -gt 0 ]; then
+    echo
+    echo "== deleting =="
+    cut -f2- "$tmpfile" | while IFS= read -r path; do
+      case "$path" in
+        /mnt/nas/*)
+          echo "DELETE: $path"
+          /home/lanky/scripts/safe-recycle.py \
+            "definite download junk older than ${MIN_AGE_DAYS} days" \
+            "$path" || echo "ERROR recycling: $path"
+          ;;
+        *)
+          echo "SKIP outside /mnt/nas: $path"
+          ;;
+      esac
+    done
+  fi
+
+  echo
+  echo "== /mnt/jelly suspicious junk report only =="
+  timeout 10m find /mnt/jelly -xdev -type f \
+    \( -iname '*.part' -o -iname '*.partial' -o -iname '*.tmp' -o -iname '*.!qB' -o -iname '*.aria2' -o -iname '*.unwanted' -o -iname 'Thumbs.db' -o -iname '.DS_Store' -o -ipath '*/sample/*' \) \
+    -printf '%s\t%p\n' 2&gt;/dev/null | sort -nr | head -500 || echo "WARN: /mnt/jelly report timed out or failed"
+} &gt; "$OUT" 2&gt;&amp;1
+status=$?
+chmod 0644 "$OUT"
+cp "$OUT" "$LATEST"
+echo "$OUT"
+exit $status</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">nas-junk-cleanup.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>update-all.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: update-all.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">update-all.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">77 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Pulls and recreates all Docker stacks to their latest images.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/bin/bash
+set -o pipefail
+
+BASE_DIR="$HOME/docker"
+MEDIA_DIR="$BASE_DIR/media-stack"
+JELLYFIN_CONFIG_DIR="$BASE_DIR/jellyfin/config"
+JELLYFIN_BACKUP_DIR="$HOME/backups/jellyfin"
+MEDIA_SERVICES=(gluetun qbittorrent prowlarr sonarr radarr flaresolverr jellyseerr)
+
+backup_jellyfin_config() {
+  if [ ! -d "$JELLYFIN_CONFIG_DIR" ]; then
+    echo "ERROR: Jellyfin config directory missing: $JELLYFIN_CONFIG_DIR" &gt;&amp;2
+    return 1
+  fi
+
+  mkdir -p "$JELLYFIN_BACKUP_DIR"
+  backup="$JELLYFIN_BACKUP_DIR/jellyfin-config-pre-update-$(date +%Y%m%d-%H%M%S).tar.gz"
+  echo "&gt;&gt;&gt; Backing up Jellyfin config to: $backup"
+  tar -C "$BASE_DIR/jellyfin" -czf "$backup" config
+}
+
+update_jellyfin() {
+  echo "=== Safe Jellyfin Update Started ==="
+  backup_jellyfin_config || return 1
+  cd "$MEDIA_DIR" || return 1
+  docker compose pull jellyfin
+  docker compose up -d --no-deps jellyfin
+  echo "=== Safe Jellyfin Update Finished ==="
+}
+
+case "${1:-}" in
+  --jellyfin|jellyfin)
+    update_jellyfin
+    exit $?
+    ;;
+  --help|-h)
+    echo "Usage: $0 [--jellyfin]"
+    echo "  no args     Update all Docker Compose projects, excluding Jellyfin"
+    echo "  --jellyfin  Backup Jellyfin config, then update only Jellyfin safely"
+    exit 0
+    ;;
+esac
+
+echo "=== Docker Compose Bulk Update Started ==="
+echo "Base directory: $BASE_DIR"
+echo
+
+for dir in "$BASE_DIR"/*; do
+  if [ -d "$dir" ]; then
+    if [ -f "$dir/docker-compose.yml" ] || [ -f "$dir/compose.yml" ]; then
+      project="$(basename "$dir")"
+      if [[ "$project" == _* ]]; then
+        echo "&gt;&gt;&gt; Skipping disabled project: $project"
+        echo
+        continue
+      fi
+
+      echo "&gt;&gt;&gt; Updating: $project"
+      cd "$dir" || continue
+
+      if [ "$project" = "media-stack" ]; then
+        backup_jellyfin_config || exit 1
+        echo "&gt;&gt;&gt; Jellyfin is excluded from automatic bulk updates to preserve user data"
+        docker compose pull "${MEDIA_SERVICES[@]}"
+        docker compose up -d --no-deps "${MEDIA_SERVICES[@]}"
+      else
+        docker compose pull
+        docker compose up -d
+      fi
+
+      echo "&gt;&gt;&gt; Done: $project"
+      echo
+    fi
+  fi
+done
+
+echo "=== All Docker Compose Projects Updated ==="</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">update-all.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

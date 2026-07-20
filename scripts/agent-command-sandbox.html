@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>agent-command-sandbox.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: agent-command-sandbox.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">agent-command-sandbox.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">35 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">A sandbox wrapper that constrains which commands the autonomous agents are allowed to execute.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+  echo "Usage: agent-command-sandbox.sh &lt;command&gt;" &gt;&amp;2
+  exit 2
+fi
+
+command_text=$1
+
+exec bwrap \
+  --ro-bind / / \
+  --remount-ro / \
+  --ro-bind /home/lanky /home/lanky \
+  --remount-ro /home/lanky \
+  --ro-bind /mnt/nas /mnt/nas \
+  --remount-ro /mnt/nas \
+  --ro-bind /mnt/jelly /mnt/jelly \
+  --remount-ro /mnt/jelly \
+  --tmpfs /tmp \
+  --tmpfs /run \
+  --dev /dev \
+  --proc /proc \
+  --unshare-all \
+  --share-net \
+  --unshare-user \
+  --disable-userns \
+  --new-session \
+  --die-with-parent \
+  --clearenv \
+  --setenv HOME /tmp \
+  --setenv PATH /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  --setenv LANG C.UTF-8 \
+  --chdir /tmp \
+  /bin/bash --noprofile --norc -lc "$command_text"</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">agent-command-sandbox.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

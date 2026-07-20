@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>person-friendly-report.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: person-friendly-report.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">person-friendly-report.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">38 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Rewrites raw technical output into a plain-English report a human actually wants to read.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/usr/bin/env bash
+set -euo pipefail
+
+kind=${1:-general}
+raw_file=${2:-}
+if [ -z "$raw_file" ] || [ ! -f "$raw_file" ]; then
+  echo "Usage: person-friendly-report.sh &lt;kind&gt; &lt;raw-report-file&gt;" &gt;&amp;2
+  exit 2
+fi
+
+case "$kind" in
+  cyber-watch)
+    if grep -q 'No external brute-force candidates detected' "$raw_file"; then
+      echo "Cyber check: no external SSH brute-force activity detected in the latest window."
+      echo "Impact: no immediate action needed."
+    else
+      echo "Cyber check: possible external SSH brute-force activity found."
+      echo "Impact: review is needed before any blocking or shutdown action."
+    fi
+    echo "Raw report: $raw_file"
+    ;;
+  cve)
+    high_critical=$(grep -E 'CRITICAL|HIGH' "$raw_file" | wc -l || true)
+    echo "CVE check: Docker image vulnerability scan completed."
+    echo "Impact: $high_critical HIGH/CRITICAL result lines found. Cyber Analyst should review and raise patch tickets where needed."
+    echo "Raw report: $raw_file"
+    ;;
+  av)
+    infected=$(grep -E 'Infected files:|FOUND' "$raw_file" | tail -5 | tr '\n' '; ')
+    echo "AV scan: completed."
+    echo "Impact: ${infected:-no infection summary found in output}."
+    echo "Raw report: $raw_file"
+    ;;
+  *)
+    echo "Report completed."
+    echo "Raw report: $raw_file"
+    ;;
+esac</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">person-friendly-report.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

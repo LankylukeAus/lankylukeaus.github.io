@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fix_govee_lights.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: fix_govee_lights.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">fix_govee_lights.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">57 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Recovers Govee lighting by running a repair routine inside the Home Assistant container.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/bin/bash
+
+echo "=== Home Assistant Govee2MQTT Lights Auto-Fix ==="
+
+# HA container name
+HA_CONTAINER=$(docker ps --format "{{.Names}}" | grep homeassistant)
+
+if [ -z "$HA_CONTAINER" ]; then
+    echo "Home Assistant container not found!"
+    exit 1
+fi
+
+# Run Python inside HA container
+docker exec -i $HA_CONTAINER /bin/bash -c "
+python3 - &lt;&lt;'EOF'
+import json
+import os
+import shutil
+
+STORAGE_PATH = '/config/.storage/core.entity_registry'
+BACKUP_PATH = '/config/.storage/core.entity_registry.bak'
+
+# 1. Check file exists
+if not os.path.exists(STORAGE_PATH):
+    print(f'Error: {STORAGE_PATH} not found!')
+    exit(1)
+
+# 2. Backup original file
+shutil.copy2(STORAGE_PATH, BACKUP_PATH)
+print(f'Backup created at {BACKUP_PATH}')
+
+# 3. Load entity_registry
+with open(STORAGE_PATH, 'r') as f:
+    data = json.load(f)
+
+updated_count = 0
+
+# 4. Patch missing color_mode for lights
+for entry in data.get('data', {}).get('entities', []):
+    if entry.get('entity_id', '').startswith('light.'):
+        capabilities = entry.get('capabilities', {})
+        if 'color_mode' not in capabilities or capabilities['color_mode'] is None:
+            capabilities['color_mode'] = 'rgb'
+            entry['capabilities'] = capabilities
+            updated_count += 1
+            print(f\"Patched {entry['entity_id']} with color_mode='rgb'\")
+
+# 5. Save patched file
+with open(STORAGE_PATH, 'w') as f:
+    json.dump(data, f, indent=4)
+
+print(f'=== Patch Complete: {updated_count} lights updated ===')
+EOF
+"
+
+echo "=== Auto-Fix Script Finished ==="
+echo "⚠️ Remember to RESTART Home Assistant to apply changes"</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">fix_govee_lights.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

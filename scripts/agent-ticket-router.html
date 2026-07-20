@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>agent-ticket-router.py — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: agent-ticket-router.py">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">agent-ticket-router.py</h1>
+    <div class="machine-meta">
+      <span class="pill">python</span>
+      <span class="pill">400 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Routes incoming tickets/requests to the agent that owns that domain.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="python"><code>#!/usr/bin/env python3
+import datetime
+import fcntl
+import json
+import os
+import shutil
+import subprocess
+import sys
+from zoneinfo import ZoneInfo
+
+REPORT_DIR = "/home/lanky/reports"
+TICKET_LOG = os.path.join(REPORT_DIR, "agent-tickets.jsonl")
+JOB_FILE = os.path.join(REPORT_DIR, "service-desk-jobs.json")
+COUNTER_FILE = os.path.join(REPORT_DIR, "service-desk-job-counter")
+SCRIPT_DIR = "/home/lanky/scripts"
+GROUP_ID = os.environ.get("LANKY_ALERT_GROUP_ID", "&lt;WHATSAPP_GROUP_ID&gt;")
+MEDIA_DIR = "/home/lanky/.openclaw/media/service-desk"
+LOCAL_TZ = ZoneInfo("Australia/Adelaide")
+
+AGENTS = {
+    "all": "all-agents",
+    "media": "media",
+    "docker": "docker",
+    "dns": "dns",
+    "cyber": "cyber",
+    "backup": "backup",
+    "network": "network",
+    "updates": "updates",
+    "nas": "nas", "ssl": "ssl",
+}
+
+ETA_MINUTES = {
+    "all-agents": 30,
+    "run-area-agent": 15,
+    "media-file-health": 24 * 60,
+    "nas-media-review": 24 * 60,
+    "cyber-cve-scan": 6 * 60,
+    "cyber-av-scan": 2 * 60,
+}
+
+
+def now_utc() -&gt; datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def norm(text: str) -&gt; str:
+    return " ".join(text.lower().split())
+
+
+def load_jobs() -&gt; dict:
+    try:
+        with open(JOB_FILE, encoding="utf-8") as handle:
+            value = json.load(handle)
+            return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_jobs(jobs: dict) -&gt; None:
+    temporary = JOB_FILE + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(jobs, handle, indent=2, ensure_ascii=True)
+        handle.write("\n")
+    os.replace(temporary, JOB_FILE)
+
+
+def append_log(record: dict) -&gt; None:
+    with open(TICKET_LOG, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+
+
+def with_job_lock(callback):
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    with open(JOB_FILE + ".lock", "a+", encoding="ascii") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return callback()
+
+
+def create_job(agent_key: str, request: str, action: str) -&gt; dict:
+    def create() -&gt; dict:
+        try:
+            with open(COUNTER_FILE, encoding="ascii") as counter:
+                current = int(counter.read().strip())
+        except (OSError, ValueError):
+            current = 1000
+        job_id = current + 1
+        with open(COUNTER_FILE, "w", encoding="ascii") as counter:
+            counter.write(f"{job_id}\n")
+
+        created = now_utc()
+        eta_minutes = ETA_MINUTES[action]
+        job = {
+            "id": job_id,
+            "created": created.isoformat(),
+            "updated": created.isoformat(),
+            "eta": (created + datetime.timedelta(minutes=eta_minutes)).isoformat(),
+            "eta_minutes": eta_minutes,
+            "agent": AGENTS[agent_key],
+            "level": 2,
+            "request": request,
+            "action": action,
+            "status": "queued",
+        }
+        jobs = load_jobs()
+        jobs[str(job_id)] = job
+        save_jobs(jobs)
+        append_log(job)
+        return job
+
+    return with_job_lock(create)
+
+
+def update_job(job_id: int, status: str, **values) -&gt; dict:
+    def update() -&gt; dict:
+        jobs = load_jobs()
+        job = jobs.get(str(job_id))
+        if not job:
+            raise KeyError(f"Unknown job ID {job_id}")
+        job.update(values)
+        job["status"] = status
+        job["updated"] = now_utc().isoformat()
+        jobs[str(job_id)] = job
+        save_jobs(jobs)
+        append_log(job)
+        return job
+
+    return with_job_lock(update)
+
+
+def eta_text(job: dict) -&gt; str:
+    minutes = int(job["eta_minutes"])
+    deadline = datetime.datetime.fromisoformat(job["eta"]).astimezone(LOCAL_TZ)
+    if minutes &gt;= 1440 and minutes % 1440 == 0:
+        duration = f"{minutes // 1440} day"
+    elif minutes &gt;= 60 and minutes % 60 == 0:
+        duration = f"{minutes // 60} hours"
+    else:
+        duration = f"{minutes} minutes"
+    return f"{duration}; by {deadline.strftime('%I:%M %p, %d %b %Y').lstrip('0')} Adelaide time"
+
+
+def send_completion(job: dict, result: str, report_path: str = "") -&gt; tuple[bool, str]:
+    state = "COMPLETE" if job["status"] == "completed" else "FAILED"
+    result = result.strip() or "No result details were returned."
+    if len(result) &gt; 3500:
+        result = result[:3500].rstrip() + "\n[Result shortened; see attached report.]"
+    completed_at = datetime.datetime.now(LOCAL_TZ).strftime("%I:%M %p, %d %b %Y").lstrip("0")
+    message = (
+        f"JOB ID {job['id']} {state}\n"
+        f"Task: {job['request']}\n"
+        f"Owner: {job['agent']}\n"
+        f"Completed: {completed_at}\n\n"
+        f"Results:\n{result}"
+    )
+    command = [
+        "openclaw", "message", "send",
+        "--channel", "whatsapp", "--account", "default",
+        "--target", GROUP_ID, "--message", message,
+    ]
+    if report_path and os.path.isfile(report_path):
+        os.makedirs(MEDIA_DIR, exist_ok=True)
+        extension = os.path.splitext(report_path)[1] or ".txt"
+        staged_report = os.path.join(MEDIA_DIR, f"job-{job['id']}-report{extension}")
+        shutil.copy2(report_path, staged_report)
+        command.extend(["--media", staged_report, "--force-document"])
+    completed = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    return completed.returncode == 0, completed.stdout.strip()
+
+
+def run_area_agent(agent_id: str) -&gt; tuple[int, str, str]:
+    unit = f"lanky-agent@{agent_id}.service"
+    try:
+        completed = subprocess.run(
+            ["sudo", "-n", "/usr/bin/systemctl", "start", unit],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=420,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return 124, "The area agent did not finish within seven minutes.", ""
+    if completed.returncode:
+        detail = completed.stdout.strip() or "systemd did not return details"
+        return completed.returncode, f"The area agent could not be started: {detail}", ""
+    report_path = os.path.join(REPORT_DIR, f"agent-{agent_id}-latest.md")
+    try:
+        with open(report_path, encoding="utf-8", errors="replace") as report:
+            content = report.read().strip()
+    except OSError as exc:
+        return 1, f"The area agent ran but its report could not be read: {exc}", ""
+    if len(content) &lt; 80 or "status" not in content.lower():
+        return 1, "The area agent returned an invalid report. L3 has been notified.", report_path
+    return 0, content, report_path
+
+
+def run_all_agents() -&gt; tuple[int, str, str]:
+    reports = []
+    failures = 0
+    for agent_key in ("media", "docker", "dns", "cyber", "backup", "network", "updates"):
+        agent_id = AGENTS[agent_key]
+        status, report, _ = run_area_agent(agent_id)
+        reports.append(f"=== {agent_id} ===\n{report}")
+        failures += int(status != 0)
+    return (1 if failures else 0), "\n\n".join(reports), ""
+
+
+def run_external(action: str, job_id: int) -&gt; tuple[int, str, str]:
+    env = os.environ.copy()
+    env["SERVICE_DESK_JOB_ID"] = str(job_id)
+    commands = {
+        "media-file-health": (["media-english-check.sh", "--worker"], 25 * 60 * 60),
+        "nas-media-review": (["nas-media-review.sh", "--worker"], 25 * 60 * 60),
+        "cyber-cve-scan": (["cyber-cve-scan.sh"], 7 * 60 * 60),
+        "cyber-av-scan": (["cyber-av-scan.sh", "quick"], 3 * 60 * 60),
+    }
+    args, timeout = commands[action]
+    try:
+        completed = subprocess.run(
+            [os.path.join(SCRIPT_DIR, args[0]), *args[1:]],
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return 124, f"The {action} job exceeded its execution window.", ""
+    report_paths = {
+        "media-file-health": os.path.join(REPORT_DIR, "media-english-check-latest.txt"),
+        "nas-media-review": os.path.join(REPORT_DIR, "nas-media-check-latest.txt"),
+        "cyber-cve-scan": os.path.join(REPORT_DIR, "cyber-cve-scan-latest.txt"),
+        "cyber-av-scan": os.path.join(REPORT_DIR, "cyber-av-scan-latest.txt"),
+    }
+    report_path = report_paths[action]
+    if os.path.isfile(report_path):
+        with open(report_path, encoding="utf-8", errors="replace") as report:
+            result = report.read().strip()
+    else:
+        result = completed.stdout.strip()
+    return completed.returncode, result, report_path
+
+
+def worker(job_id: int) -&gt; int:
+    job = load_jobs().get(str(job_id))
+    if not job:
+        return 2
+    update_job(job_id, "running", started=now_utc().isoformat())
+    action = job["action"]
+    if action == "all-agents":
+        code, result, report_path = run_all_agents()
+    elif action == "run-area-agent":
+        code, result, report_path = run_area_agent(job["agent"])
+    else:
+        code, result, report_path = run_external(action, job_id)
+    status = "completed" if code == 0 else "failed"
+    job = update_job(
+        job_id,
+        status,
+        exit_code=code,
+        result=result[:12000],
+        report_path=report_path,
+        completed=now_utc().isoformat(),
+    )
+    sent, delivery_detail = send_completion(job, result, report_path)
+    update_job(
+        job_id,
+        status,
+        notification_status="sent" if sent else "failed",
+        notification_detail=delivery_detail[-2000:],
+    )
+    return code
+
+
+def choose_action(agent_key: str, text: str) -&gt; str:
+    if agent_key == "all":
+        return "all-agents"
+    if agent_key == "media" and any(
+        term in text
+        for term in [
+            "health check", "healthcheck", "english", "language", "playable",
+            "codec", "audio", "movie", "movies", "media files",
+        ]
+    ):
+        return "media-file-health"
+    if agent_key == "media" and any(
+        term in text for term in ["duplicate", "duplicates", "same show", "junk"]
+    ):
+        return "nas-media-review"
+    if agent_key == "cyber" and any(
+        term in text for term in ["cve", "vulnerability", "vulnerabilities", "scan images", "docker image"]
+    ):
+        return "cyber-cve-scan"
+    if agent_key == "cyber" and any(
+        term in text for term in ["virus", "malware", "clamav", "av scan", "antivirus"]
+    ):
+        return "cyber-av-scan"
+    return "run-area-agent"
+
+
+def show_jobs(job_id: str = "") -&gt; int:
+    jobs = load_jobs()
+    if job_id:
+        job = jobs.get(job_id)
+        if not job:
+            print(f"No Service Desk job exists with ID {job_id}.")
+            return 0
+        print(
+            f"JOB ID {job['id']}\n"
+            f"Status: {job['status']}\n"
+            f"Task: {job['request']}\n"
+            f"Owner: {job['agent']}\n"
+            f"ETA: {eta_text(job)}"
+        )
+        if job.get("result"):
+            print(f"\nResults:\n{job['result']}")
+        return 0
+    active = [job for job in jobs.values() if job.get("status") in {"queued", "running"}]
+    if not active:
+        print("There are no active Service Desk jobs.")
+        return 0
+    for job in sorted(active, key=lambda item: item["id"]):
+        print(
+            f"ID {job['id']} | {job['status']} | {job['agent']} | "
+            f"ETA {eta_text(job)} | {job['request']}"
+        )
+    return 0
+
+
+def retry_notification(job_id: int) -&gt; int:
+    job = load_jobs().get(str(job_id))
+    if not job:
+        print(f"No Service Desk job exists with ID {job_id}.")
+        return 2
+    sent, detail = send_completion(
+        job,
+        job.get("result", "No result details were stored."),
+        job.get("report_path", ""),
+    )
+    update_job(
+        job_id,
+        job["status"],
+        notification_status="sent" if sent else "failed",
+        notification_detail=detail[-2000:],
+    )
+    print(f"Job {job_id} WhatsApp notification: {'sent' if sent else 'failed'}")
+    if detail:
+        print(detail)
+    return 0 if sent else 1
+
+
+def main() -&gt; int:
+    if len(sys.argv) &gt;= 3 and sys.argv[1] == "--worker":
+        return worker(int(sys.argv[2]))
+    if len(sys.argv) &gt;= 3 and sys.argv[1] == "--notify":
+        return retry_notification(int(sys.argv[2]))
+    if len(sys.argv) &gt;= 2 and sys.argv[1] == "--list":
+        return show_jobs(sys.argv[2] if len(sys.argv) &gt; 2 else "")
+    if len(sys.argv) &lt; 3:
+        print(
+            "Usage: agent-ticket-router.py all|media|home-assistant|ops-nas|cyber &lt;request&gt;",
+            file=sys.stderr,
+        )
+        return 2
+
+    agent_key = sys.argv[1]
+    request = " ".join(sys.argv[2:]).strip()
+    if agent_key not in AGENTS:
+        print(f"Unknown agent: {agent_key}", file=sys.stderr)
+        return 2
+    action = choose_action(agent_key, norm(request))
+    job = create_job(agent_key, request, action)
+    log_path = os.path.join(REPORT_DIR, f"service-desk-job-{job['id']}.log")
+    with open(log_path, "ab") as log:
+        subprocess.Popen(
+            [sys.executable, __file__, "--worker", str(job["id"])],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    print("JOB LOGGED")
+    print(f"ID: {job['id']}")
+    print(f"Task: {job['request']}")
+    print(f"Owner: {job['agent']} (level {job['level']})")
+    print(f"ETA: {eta_text(job)}")
+    print("Status: queued")
+    print("No confirmation is required. I will send the results on WhatsApp when it completes.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">agent-ticket-router.py · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

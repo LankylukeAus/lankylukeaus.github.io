@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lanky-alert-monitor.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: lanky-alert-monitor.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">lanky-alert-monitor.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">83 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Watches for alert conditions and fires notifications when thresholds trip.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/usr/bin/env bash
+set -u
+STATE_DIR=/var/lib/lanky-alerts
+REPORT_DIR=/home/lanky/reports
+mkdir -p "$STATE_DIR" "$REPORT_DIR"
+STATUS_FILE="$STATE_DIR/last-alert-status.txt"
+CURRENT=$(mktemp)
+trap 'rm -f "$CURRENT"' EXIT
+
+add() { echo "$*" &gt;&gt; "$CURRENT"; }
+
+
+power_state="unknown"
+if command -v on_ac_power &gt;/dev/null 2&gt;&amp;1; then
+  if on_ac_power &gt;/dev/null 2&gt;&amp;1; then
+    power_state="ac"
+  else
+    rc=$?
+    [ "$rc" -eq 1 ] &amp;&amp; power_state="battery"
+  fi
+fi
+if [ "$power_state" = unknown ]; then
+  for supply in /sys/class/power_supply/*; do
+    [ -d "$supply" ] || continue
+    type=$(cat "$supply/type" 2&gt;/dev/null || echo unknown)
+    if [ "$type" = Mains ] || [ "$type" = USB ] || [ "$type" = USB_C ] || [ "$type" = USB_PD ]; then
+      online=$(cat "$supply/online" 2&gt;/dev/null || echo unknown)
+      [ "$online" = 1 ] &amp;&amp; power_state="ac"
+    elif [ "$type" = Battery ]; then
+      status=$(cat "$supply/status" 2&gt;/dev/null || echo unknown)
+      printf '%s' "$status" | grep -qi '^Discharging$' &amp;&amp; power_state="battery"
+    fi
+  done
+fi
+if [ "$power_state" = battery ]; then
+  battery_detail=$(for b in /sys/class/power_supply/*; do [ -d "$b" ] || continue; [ "$(cat "$b/type" 2&gt;/dev/null || echo unknown)" = Battery ] || continue; printf '%s %s %s%%; ' "$(basename "$b")" "$(cat "$b/status" 2&gt;/dev/null || echo unknown)" "$(cat "$b/capacity" 2&gt;/dev/null || echo unknown)"; done)
+  add "MAJOR: server is running on battery power; faulty charge port risk; server may shut down${battery_detail:+ ($battery_detail)}"
+fi
+
+for m in /mnt/nas /mnt/jelly; do
+  timeout 5s mountpoint -q "$m" || add "CRITICAL: $m is not mounted"
+done
+
+if ! systemctl is-active --quiet docker; then
+  add "CRITICAL: docker service is not active"
+fi
+
+failed_units=$(systemctl --failed --plain --no-legend 2&gt;/dev/null | awk '{print $1}' | paste -sd ', ' -)
+[ -n "$failed_units" ] &amp;&amp; add "WARNING: failed systemd units: $failed_units"
+
+unhealthy=$(timeout 10s docker ps --filter health=unhealthy --format '{{.Names}} ({{.Status}})' 2&gt;/dev/null | paste -sd '; ' -)
+[ -n "$unhealthy" ] &amp;&amp; add "CRITICAL: unhealthy containers: $unhealthy"
+
+bad_containers=$(timeout 10s docker ps -a --filter status=exited --filter status=dead --filter status=restarting --format '{{.Names}} ({{.Status}})' 2&gt;/dev/null | paste -sd '; ' -)
+[ -n "$bad_containers" ] &amp;&amp; add "WARNING: stopped/restarting containers: $bad_containers"
+
+root_pct=$(df -P / 2&gt;/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')
+[ -n "${root_pct:-}" ] &amp;&amp; [ "$root_pct" -ge 85 ] &amp;&amp; add "WARNING: root disk is ${root_pct}% full"
+
+for m in /mnt/nas /mnt/jelly; do
+  if timeout 5s mountpoint -q "$m"; then
+    pct=$(timeout 10s df -P "$m" 2&gt;/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')
+    [ -n "${pct:-}" ] &amp;&amp; [ "$pct" -ge 90 ] &amp;&amp; add "WARNING: $m is ${pct}% full"
+  fi
+done
+
+[ -f /var/run/reboot-required ] &amp;&amp; add "INFO: reboot required after updates"
+
+if [ ! -s "$CURRENT" ]; then
+  echo "OK $(date -Is)" &gt; "$REPORT_DIR/lanky-alert-monitor-latest.txt"
+  if [ -s "$STATUS_FILE" ]; then
+    /home/lanky/scripts/notify-admin.sh "RESOLVED: no active server alerts" || true
+    : &gt; "$STATUS_FILE"
+  fi
+  exit 0
+fi
+
+cp "$CURRENT" "$REPORT_DIR/lanky-alert-monitor-latest.txt"
+if ! cmp -s "$CURRENT" "$STATUS_FILE"; then
+  msg=$(sed ':a;N;$!ba;s/\n/ | /g' "$CURRENT")
+  /home/lanky/scripts/notify-admin.sh "$msg" || true
+  cp "$CURRENT" "$STATUS_FILE"
+fi</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">lanky-alert-monitor.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cyber-watch.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: cyber-watch.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">cyber-watch.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">90 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Reads the auth journal for <strong>SSH brute-force</strong> candidates and other suspicious activity, producing a windowed security report.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/usr/bin/env bash
+set -euo pipefail
+
+REPORT_DIR=/home/lanky/reports
+STATE_DIR=/home/lanky/.local/state/lanky-cyber
+GROUP_ID=&lt;WHATSAPP_GROUP_ID&gt;
+mkdir -p "$REPORT_DIR" "$STATE_DIR"
+
+stamp=$(date +%Y%m%d-%H%M%S)
+report="$REPORT_DIR/cyber-watch-$stamp.txt"
+latest="$REPORT_DIR/cyber-watch-latest.txt"
+state="$STATE_DIR/bruteforce-alerts.jsonl"
+threshold=${BRUTE_FORCE_THRESHOLD:-8}
+window="${BRUTE_FORCE_WINDOW:-15 minutes ago}"
+
+ssh_failures=$(mktemp)
+trap 'rm -f "$ssh_failures"' EXIT
+
+read_ssh_journal() {
+  if [ "$(id -u)" -eq 0 ]; then
+    journalctl -u ssh --since "$window" --no-pager
+  elif sudo -n journalctl -u ssh --since "$window" --no-pager; then
+    return 0
+  else
+    echo "ERROR: Cyber watch could not read the SSH journal with its current permissions." &gt;&amp;2
+    return 1
+  fi
+}
+
+if ! read_ssh_journal &gt;/dev/null; then
+  exit 1
+fi
+
+{
+  read_ssh_journal |
+    awk '
+      /Failed password|Invalid user|authentication failure/ {
+        for (i=1;i&lt;=NF;i++) {
+          if ($i == "from" &amp;&amp; (i+1)&lt;=NF) print $(i+1)
+          else if ($i ~ /^rhost=/) { sub(/^rhost=/,"",$i); print $i }
+        }
+      }' |
+    grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' |
+    grep -Ev '^(10|127)\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.|^169\.254\.' || true
+} | sort | uniq -c | sort -nr &gt; "$ssh_failures"
+
+{
+  echo "Cyber Analyst watch report"
+  echo "Generated: $(date -Is)"
+  echo "Window: $window"
+  echo
+  echo "== SSH brute-force candidates =="
+  if [ -s "$ssh_failures" ]; then
+    cat "$ssh_failures"
+  else
+    echo "No external brute-force candidates detected."
+  fi
+  echo
+  echo "== Recent authentication warnings =="
+  read_ssh_journal |
+    grep -Ei 'failed|invalid|authentication failure|disconnect|error' |
+    tail -40 || true
+  echo
+  echo "== Internet-facing service snapshot =="
+  ss -tulpen 2&gt;/dev/null | awk 'NR==1 || /0\.0\.0\.0|\[::\]|:::/' | sed -n '1,80p' || true
+} &gt; "$report"
+rm -f "$latest"
+cp "$report" "$latest"
+chown lanky:lanky "$report" "$latest" 2&gt;/dev/null || true
+
+alert_lines=$(awk -v threshold="$threshold" '$1 &gt;= threshold {print $0}' "$ssh_failures")
+if [ -n "$alert_lines" ]; then
+  key=$(printf '%s\n' "$alert_lines" | sha256sum | awk '{print $1}')
+  if ! grep -q "$key" "$state" 2&gt;/dev/null; then
+    printf '{"timestamp":"%s","key":"%s","findings":%s}\n' "$(date -Is)" "$key" "$(printf '%s' "$alert_lines" | jq -Rs .)" &gt;&gt; "$state"
+    friendly=$(/home/lanky/scripts/person-friendly-report.sh cyber-watch "$report")
+    message="SECURITY ALERT: possible external SSH brute-force detected. Offending IP counts: ${alert_lines}
+
+${friendly}
+
+I will NOT auto-shutdown as L1; L3/Lanky approval is required for shutdown or blocking."
+    sudo -u lanky openclaw message send --channel whatsapp --account default --target "$GROUP_ID" --message "$message" &gt;/dev/null 2&gt;&amp;1 || true
+    (
+      sleep 300
+      sudo -u lanky openclaw message send --channel whatsapp --account default --target "$GROUP_ID" --message "SECURITY ESCALATION REMINDER: brute-force alert still requires L3/Lanky review. No automatic shutdown was performed. Raw report: $report" &gt;/dev/null 2&gt;&amp;1 || true
+    ) &amp;
+  fi
+fi
+
+echo "$report"</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">cyber-watch.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

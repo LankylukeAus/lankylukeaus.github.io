@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>test-whatsapp-health-agent.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: test-whatsapp-health-agent.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">test-whatsapp-health-agent.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">46 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Test harness for the WhatsApp health-agent pipeline.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/usr/bin/env bash
+set -euo pipefail
+
+session_key="agent:main:confirmation-regression-$(date +%s)"
+request='Can you provide a FULL healthcheck over the last 24 hours'
+output_file=$(mktemp)
+trap 'rm -f "$output_file"' EXIT
+
+openclaw agent \
+  --session-key "$session_key" \
+  --message "$request" \
+  --json &gt;"$output_file"
+
+python3 - "$output_file" &lt;&lt;'PY'
+import json
+import re
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    result = json.load(handle)
+
+payloads = result["result"]["payloads"]
+reply = "\n".join(item.get("text") or "" for item in payloads)
+tool_summary = result["result"]["meta"].get("toolSummary", {})
+tools = tool_summary.get("tools", [])
+
+forbidden = re.compile(
+    r"would you like me to (?:proceed|route)|"
+    r"do you want me to proceed|"
+    r"shall i proceed|"
+    r"i will route this request",
+    re.IGNORECASE,
+)
+
+if forbidden.search(reply):
+    raise SystemExit(f"FAIL: confirmation loop detected:\n{reply}")
+
+if "route_server_request" not in tools:
+    raise SystemExit(
+        "FAIL: the health request did not call route_server_request. "
+        f"Tools used: {tools}"
+    )
+
+print("PASS: clear health request executed without a confirmation loop.")
+print(reply)
+PY</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">test-whatsapp-health-agent.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

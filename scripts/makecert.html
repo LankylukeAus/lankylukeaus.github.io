@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>makecert.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: makecert.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">makecert.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">23 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Generates local TLS certificates for internal services.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/bin/bash
+
+# Variables
+DOMAIN="lanky.com"
+KEY_FILE="${DOMAIN}.key"
+CSR_FILE="${DOMAIN}.csr"
+CRT_FILE="${DOMAIN}.crt"
+DAYS_VALID=365
+
+echo "Generating private key for $DOMAIN..."
+openssl genrsa -out "$KEY_FILE" 2048
+
+echo "Creating Certificate Signing Request (CSR)..."
+openssl req -new -key "$KEY_FILE" -out "$CSR_FILE" \
+  -subj "/C=AU/ST=YourState/L=YourCity/O=YourOrg/OU=IT Department/CN=$DOMAIN/emailAddress=admin@$DOMAIN"
+
+echo "Generating self-signed certificate..."
+openssl x509 -req -days $DAYS_VALID -in "$CSR_FILE" -signkey "$KEY_FILE" -out "$CRT_FILE"
+
+echo "Done! Files generated:"
+echo "Private Key: $KEY_FILE"
+echo "Certificate: $CRT_FILE"
+echo "CSR: $CSR_FILE"</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">makecert.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

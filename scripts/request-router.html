@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>request-router.py — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: request-router.py">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">request-router.py</h1>
+    <div class="machine-meta">
+      <span class="pill">python</span>
+      <span class="pill">323 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Natural-language router that maps a chat phrase ("check jellyfin") to the correct approved action or script.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="python"><code>#!/usr/bin/env python3
+import datetime
+import json
+import os
+import re
+import subprocess
+import sys
+
+SCRIPT_DIR = "/home/lanky/scripts"
+REPORT_DIR = "/home/lanky/reports"
+MISSING_LOG = os.path.join(REPORT_DIR, "missing-script-requests.jsonl")
+PENDING_FILE = os.path.join(REPORT_DIR, "pending-script-request.txt")
+GROUP_ID = os.environ.get("LANKY_ALERT_GROUP_ID", "&lt;WHATSAPP_GROUP_ID&gt;")
+
+CONTAINER_ALIASES = {
+    "jellyfin server": "jellyfin",
+    "jellyfin": "jellyfin",
+    "jelly seer": "jellyseerr",
+    "jellyseer": "jellyseerr",
+    "jellyseerr": "jellyseerr",
+    "sonarr": "sonarr",
+    "radarr": "radarr",
+    "prowlarr": "prowlarr",
+    "qbittorrent": "qbittorrent",
+    "torrent": "qbittorrent",
+    "open web ui": "openwebui",
+    "openwebui": "openwebui",
+    "ollama": "ollama",
+    "home assistant": "homeassistant",
+    "homeassistant": "homeassistant",
+    "zigbee2mqtt": "zigbee2mqtt",
+    "zigbee": "zigbee2mqtt",
+    "mosquitto": "mosquitto",
+    "mqtt": "mosquitto",
+    "nginx proxy manager": "nginx-proxy-manager",
+    "pihole": "pihole",
+    "pi hole": "pihole",
+    "cloudflared": "cloudflared",
+    "n8n": "n8n",
+}
+
+
+def normalized(text: str) -&gt; str:
+    return re.sub(r"\s+", " ", text.lower()).strip()
+
+
+def contains(text: str, *terms: str) -&gt; bool:
+    return any(term in text for term in terms)
+
+
+def clear_pending() -&gt; None:
+    try:
+        os.unlink(PENDING_FILE)
+    except FileNotFoundError:
+        pass
+
+
+def run(command: list[str], timeout: int = 120) -&gt; int:
+    try:
+        completed = subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        print("The approved script started but exceeded the interactive timeout.")
+        print("It may need to run as a background job with completion notification.")
+        return 124
+
+    output = completed.stdout.strip()
+    if output:
+        print(output)
+    if completed.returncode:
+        print(f"Script failed with exit code {completed.returncode}.")
+    return completed.returncode
+
+
+def run_report_script(name: str, *args: str, timeout: int = 120) -&gt; int:
+    command = [os.path.join(SCRIPT_DIR, name), *args]
+    try:
+        completed = subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        print("The approved report script exceeded the interactive timeout.")
+        return 124
+
+    output = completed.stdout.strip()
+    report_path = output.splitlines()[-1] if output else ""
+    if report_path.startswith(REPORT_DIR + "/") and os.path.isfile(report_path):
+        with open(report_path, "r", encoding="utf-8", errors="replace") as report:
+            print(report.read().strip())
+    elif output:
+        print(output)
+    if completed.returncode:
+        print(f"Script failed with exit code {completed.returncode}.")
+    return completed.returncode
+
+
+def missing(original: str) -&gt; int:
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    record = {
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "request": original,
+        "status": "missing_approved_script",
+    }
+    with open(MISSING_LOG, "a", encoding="utf-8") as log:
+        log.write(json.dumps(record, ensure_ascii=True) + "\n")
+    with open(PENDING_FILE, "w", encoding="utf-8") as pending:
+        pending.write(original + "\n")
+
+    subprocess.run(
+        [
+            "openclaw", "message", "send",
+            "--channel", "whatsapp", "--account", "default",
+            "--target", GROUP_ID,
+            "--message", f"[lankyserver] No approved workflow matched this request — logged for Codex review:\n{original}",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    print("ROUTING_FAILED: No approved workflow matched this request.")
+    print("Do not claim the requested check ran and do not infer a successful result.")
+    print("I logged it for administrator/Codex review:")
+    print(f"- {original}")
+    print("No system changes were made.")
+    return 0
+
+
+def mentioned_containers(text: str) -&gt; list[str]:
+    found = []
+    for alias, container in sorted(CONTAINER_ALIASES.items(), key=lambda item: -len(item[0])):
+        if alias in text and container not in found:
+            found.append(container)
+    return found
+
+
+def main() -&gt; int:
+    if len(sys.argv) &lt; 2:
+        print("Usage: request-router.py &lt;natural-language request&gt;", file=sys.stderr)
+        return 2
+
+    original = " ".join(sys.argv[1:]).strip()
+    original = re.sub(r"^\[[^\]]+\]\s*", "", original)
+    text = normalized(original)
+
+    job_status = re.search(r"\b(?:job|ticket)(?:\s+id)?\s+(\d+)\b", text)
+    if job_status and contains(text, "status", "show", "check", "result", "update"):
+        clear_pending()
+        return run([
+            os.path.join(SCRIPT_DIR, "agent-ticket-router.py"),
+            "--list", job_status.group(1),
+        ])
+    if contains(text, "active jobs", "open jobs", "pending jobs", "service desk jobs"):
+        clear_pending()
+        return run([os.path.join(SCRIPT_DIR, "agent-ticket-router.py"), "--list"])
+
+    if contains(
+        text,
+        "pending l3", "l3 changes", "l3 change", "pending approvals",
+        "needs my approval", "need my approval",
+    ) and not re.search(r"\b(approve|local-only|proxy|trusted-users|separate-users)\b", text):
+        clear_pending()
+        return run([os.path.join(SCRIPT_DIR, "l3-escalation.py"), "list"])
+
+    if (
+        re.match(r"^approve l3 [0-9a-f]{16}$", text)
+        or re.match(r"^l3 [0-9a-f]{16} (local-only|trusted-users|separate-users)$", text)
+        or re.match(r"^l3 [0-9a-f]{16} proxy (?:\d{1,3}\.){3}\d{1,3}$", text)
+    ):
+        clear_pending()
+        return run([os.path.join(SCRIPT_DIR, "l3-escalation.py"), "respond", original])
+
+    generic_followups = {
+        "please run those", "run those", "run it", "do that",
+        "please do that", "go ahead", "proceed", "yes", "yes please",
+    }
+    if text in generic_followups and os.path.isfile(PENDING_FILE):
+        with open(PENDING_FILE, "r", encoding="utf-8", errors="replace") as pending:
+            original = pending.read().strip()
+        text = normalized(original)
+
+    docker_status_request = (
+        ("docker" in text or "container" in text or "containers" in text)
+        and contains(text, "status", "list", "show", "running", "up", "down")
+    )
+    if docker_status_request or contains(text, "list containers", "show containers", "container status"):
+        clear_pending()
+        return run([os.path.join(SCRIPT_DIR, "docker-level2.py"), "status"])
+
+    if contains(text, "restart", "reboot") and mentioned_containers(text):
+        clear_pending()
+        containers = mentioned_containers(text)
+        print("Level 2 approved action: restart existing Docker container(s): " + ", ".join(containers))
+        return run([os.path.join(SCRIPT_DIR, "docker-level2.py"), "restart", *containers], timeout=600)
+
+    if contains(text, "restart", "reboot") and contains(text, "docker", "all containers", "everything"):
+        clear_pending()
+        print("I will not restart all containers from a level-1 request.")
+        print("Ask L3/Codex for approval if a broad restart is required.")
+        return 0
+
+    general_status_request = (
+        ("server" in text or "docker" in text)
+        and contains(text, "health", "status", "running", "going", "working")
+    )
+    full_24h_review = (
+        contains(text, "24 hour", "24-hour", "last 24 hours", "past day")
+        and contains(text, "full health", "full healthcheck", "full health check",
+                     "comprehensive health", "all agents", "each agent")
+    )
+    if full_24h_review:
+        clear_pending()
+        return run(
+            [os.path.join(SCRIPT_DIR, "full-health-whatsapp.sh"), original],
+            timeout=1800,
+        )
+
+    if general_status_request or contains(
+        text,
+        "health check", "system health", "server health", "docker health",
+        "status of the server",
+    ):
+        clear_pending()
+        return run([os.path.join(SCRIPT_DIR, "whatsapp-health-check.sh")])
+
+    media_language_request = (
+        contains(text, "movie", "movies", "media", "jellyfin", "sonarr", "radarr", "audio")
+        and contains(text, "english", "language", "non english", "foreign", "playable", "plays", "codec")
+    )
+    if media_language_request or contains(text, "make sure all movie files are in english"):
+        clear_pending()
+        return run([os.path.join(SCRIPT_DIR, "agent-ticket-router.py"), "media", original], timeout=120)
+
+    if contains(text, "nas health", "nas status", "check the nas", "nas mount", "storage health"):
+        clear_pending()
+        return run_report_script("nas-health-report.sh")
+
+    if contains(text, "hardening", "security audit", "security check", "open ports", "firewall audit"):
+        clear_pending()
+        return run([os.path.join(SCRIPT_DIR, "server-hardening-check.sh")])
+
+    if contains(text, "latest duplicate report", "show duplicate report", "duplicate results"):
+        clear_pending()
+        latest = os.path.join(REPORT_DIR, "nas-duplicates-latest.txt")
+        if os.path.isfile(latest):
+            with open(latest, "r", encoding="utf-8", errors="replace") as report:
+                print(report.read().strip())
+            return 0
+        print("No duplicate report exists yet. The approved weekly scan has not produced one.")
+        return 0
+
+    if contains(text, "scan for duplicates", "find duplicates", "duplicate scan", "check for duplicates"):
+        clear_pending()
+        print("A full duplicate scan is an approved long-running job.")
+        print("Use: confirm start NAS duplicate scan")
+        return 0
+
+    if text == "confirm start nas duplicate scan":
+        clear_pending()
+        log_path = os.path.join(REPORT_DIR, "nas-duplicate-manual-start.log")
+        with open(log_path, "ab") as log:
+            subprocess.Popen(
+                [os.path.join(SCRIPT_DIR, "nas-duplicate-report.sh")],
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        print("The NAS duplicate scan has started in the background.")
+        print("Ask for the latest duplicate report after it completes.")
+        return 0
+
+    if contains(text, "backup", "backups", "last backup", "restore"):
+        clear_pending()
+        return run([os.path.join(SCRIPT_DIR, "agent-ticket-router.py"), "backup", original], timeout=120)
+
+    if contains(text, "network", "internet", "wifi", "starlink", "outage", "connectivity", "mesh"):
+        clear_pending()
+        return run([os.path.join(SCRIPT_DIR, "agent-ticket-router.py"), "network", original], timeout=120)
+
+    if contains(text, "update", "updates", "upgrade", "patch", "patches", "outdated", "apt"):
+        clear_pending()
+        return run([os.path.join(SCRIPT_DIR, "agent-ticket-router.py"), "updates", original], timeout=120)
+
+    if contains(text, "change log", "changelog", "what changed", "history"):
+        clear_pending()
+        import json as _j
+        try:
+            lines = open("/home/lanky/reports/change-log.jsonl").readlines()[-20:]
+            entries = []
+            for ln in lines:
+                try:
+                    e = _j.loads(ln)
+                    ts = e.get("timestamp", "")[:16]
+                    ag = e.get("agent", "?")
+                    ac = e.get("action", "??")
+                    det = e.get("detail", "")
+                    entries.append("- " + ts + " [" + ag + "] " + ac + ": " + det)
+                except Exception:
+                    pass
+            msg = ("Recent changes:\n" + "\n".join(entries)) if entries else "No changes logged yet."
+        except OSError:
+            msg = "Change log not found."
+        return type("R", (), {"returncode": 0, "stdout": msg})()
+
+    if contains(text, "nas", "qnap", "storage", "lanky nas", "lankynas", "hard drive", "hard drives", "disk space"):
+        clear_pending()
+        return run([os.path.join(SCRIPT_DIR, "agent-ticket-router.py"), "nas", original], timeout=120)
+
+    if contains(text, "ssl", "certificate", "cert", "tls", "https", "lankyonline"):
+        clear_pending()
+        return run([os.path.join(SCRIPT_DIR, "agent-ticket-router.py"), "ssl", original], timeout=120)
+
+    return missing(original)</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">request-router.py · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

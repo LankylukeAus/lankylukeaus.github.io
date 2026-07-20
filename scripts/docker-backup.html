@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>docker-backup.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: docker-backup.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">docker-backup.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">45 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Archives every stack's compose + <code>.env</code> files to the NAS with retention — the "rebuild from scratch" safety net.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/bin/bash
+# Docker config backup — archives only compose files and .env to NAS
+set -euo pipefail
+
+BACKUP_SRC="/home/lanky/docker"
+NAS_DEST="/mnt/nas/Backups/lankyserver"
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+ARCHIVE_NAME="docker-config-${TIMESTAMP}.tar.gz"
+ARCHIVE_PATH="${NAS_DEST}/${ARCHIVE_NAME}"
+LATEST_COPY="${NAS_DEST}/docker-config-latest.tar.gz"
+LOG="/home/lanky/reports/backup-script.log"
+KEEP_DAYS=30
+TMPLIST="/tmp/docker-backup-files-$$.txt"
+
+echo "[${TIMESTAMP}] Starting Docker config backup" | tee -a "$LOG"
+
+# Verify NAS is mounted
+if ! mountpoint -q /mnt/nas; then
+    echo "[${TIMESTAMP}] ERROR: /mnt/nas is not mounted" | tee -a "$LOG"
+    exit 1
+fi
+
+mkdir -p "$NAS_DEST"
+
+# Build file list: only compose and .env files
+find "$BACKUP_SRC" \( -name 'docker-compose.yml' -o -name 'docker-compose.yaml' -o -name '.env' \) &gt; "$TMPLIST"
+FILE_COUNT=$(wc -l &lt; "$TMPLIST")
+echo "[${TIMESTAMP}] Found ${FILE_COUNT} config files to archive" | tee -a "$LOG"
+
+# Create archive from explicit file list
+tar -czf "$ARCHIVE_PATH" -T "$TMPLIST" 2&gt;&gt; "$LOG"
+rm -f "$TMPLIST"
+
+SIZE=$(du -sh "$ARCHIVE_PATH" | cut -f1)
+echo "[${TIMESTAMP}] Archive created: $ARCHIVE_NAME ($SIZE)" | tee -a "$LOG"
+
+# Copy as 'latest' (NAS SMB shares don't support symlinks)
+cp -f "$ARCHIVE_PATH" "$LATEST_COPY"
+echo "[${TIMESTAMP}] Updated docker-config-latest.tar.gz" | tee -a "$LOG"
+
+# Prune old backups beyond KEEP_DAYS (keep 'latest' always)
+find "$NAS_DEST" -name 'docker-config-2*.tar.gz' -mtime +${KEEP_DAYS} -delete
+echo "[${TIMESTAMP}] Pruned archives older than ${KEEP_DAYS} days" | tee -a "$LOG"
+
+echo "[${TIMESTAMP}] Backup complete: $ARCHIVE_NAME ($SIZE)" | tee -a "$LOG"</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">docker-backup.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

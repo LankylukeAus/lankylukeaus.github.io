@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>nas-media-review.sh — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: nas-media-review.sh">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">nas-media-review.sh</h1>
+    <div class="machine-meta">
+      <span class="pill">bash</span>
+      <span class="pill">92 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Generates a review of the media library for the media agent.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="bash"><code>#!/usr/bin/env bash
+set -euo pipefail
+
+REPORT_DIR=/home/lanky/reports
+LOCK_FILE=/home/lanky/reports/nas-media-review.lock
+mkdir -p "$REPORT_DIR"
+
+if [ "${1:-}" = "--worker" ]; then
+  exec 9&gt;"$LOCK_FILE"
+  if ! flock -n 9; then
+    exit 0
+  fi
+
+  stamp=$(date +%Y%m%d-%H%M%S)
+  started=$(date -Is)
+  audit_start_lines=$(wc -l &lt; "$REPORT_DIR/media-recycle-audit.jsonl" 2&gt;/dev/null || echo 0)
+  run_log="$REPORT_DIR/nas-media-review-$stamp.log"
+
+  set +e
+  {
+    echo "NAS media review"
+    echo "Started: $started"
+    echo
+    echo "== Exact duplicate cleanup to recycle =="
+    /home/lanky/scripts/nas-duplicate-cleanup.sh --apply
+    echo
+    echo "== Definite junk cleanup to recycle =="
+    /home/lanky/scripts/nas-junk-cleanup.sh --apply
+    echo
+    echo "== Playback and language audit =="
+    /home/lanky/scripts/nas-media-check.py
+  } &gt; "$run_log" 2&gt;&amp;1
+  status=$?
+  set -e
+
+  audit_end_lines=$(wc -l &lt; "$REPORT_DIR/media-recycle-audit.jsonl" 2&gt;/dev/null || echo 0)
+  moved=$((audit_end_lines - audit_start_lines))
+  moved_report="$REPORT_DIR/nas-media-recycled-$stamp.txt"
+  if [ "$moved" -gt 0 ]; then
+    tail -n "$moved" "$REPORT_DIR/media-recycle-audit.jsonl" |
+      python3 -c 'import json,sys
+print("Files moved to NAS recycle for review")
+for line in sys.stdin:
+    try:
+        item=json.loads(line)
+        print(f"{item[\"source\"]}\n  -&gt; {item[\"destination\"]}\n  reason: {item[\"reason\"]}")
+    except Exception:
+        pass' &gt; "$moved_report"
+  else
+    printf 'No files were moved to recycle.\n' &gt; "$moved_report"
+  fi
+  moved_list=$(
+    tail -n "$moved" "$REPORT_DIR/media-recycle-audit.jsonl" 2&gt;/dev/null |
+      python3 -c 'import json,sys
+for line in sys.stdin:
+    try:
+        item=json.loads(line)
+        print(f"- {item[\"source\"]} -&gt; {item[\"destination\"]}")
+    except Exception:
+        pass' |
+      head -20
+  )
+
+  compatibility="$REPORT_DIR/nas-media-check-latest.txt"
+  summary=$(
+    printf 'NAS media review completed.\n- Status: %s\n- Files moved to recycle: %s\n- Full run log: %s\n- Compatibility report: %s' \
+      "$status" "$moved" "$run_log" "$compatibility"
+    if [ -n "$moved_list" ]; then
+      printf '\n\nMoved files (first 20):\n%s' "$moved_list"
+    fi
+  )
+  if [ -z "${SERVICE_DESK_JOB_ID:-}" ]; then
+    openclaw message send \
+      --channel whatsapp \
+      --target &lt;ADMIN_PHONE&gt; \
+      --message "$summary" \
+      --media "$moved_report" \
+      --force-document \
+      --json &gt;&gt; "$run_log" 2&gt;&amp;1 || true
+  fi
+  exit "$status"
+fi
+
+if flock -n "$LOCK_FILE" true; then
+  nohup "$0" --worker &gt;/dev/null 2&gt;&amp;1 &amp;
+  echo "NAS media review started in the background."
+  echo "It will send a WhatsApp summary when complete."
+  echo "Exact duplicates and definite junk will be moved to @Recycle/CodexReview."
+  echo "Ambiguous playback or language findings will only be reported."
+else
+  echo "A NAS media review is already running."
+fi</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">nas-media-review.sh · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>

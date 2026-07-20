@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cyber-handoff.py — Script (Lanky)</title>
+  <meta name="description" content="Home-lab automation script: cyber-handoff.py">
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128220;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#scripts">← all scripts</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#scripts">back to scripts</a>
+    <h1 style="margin-top:16px;font-family:var(--mono);font-size:26px;">cyber-handoff.py</h1>
+    <div class="machine-meta">
+      <span class="pill">python</span>
+      <span class="pill">206 lines</span>
+      <span class="pill" style="color:var(--fg-dim)">secrets redacted</span>
+    </div>
+    <p class="subtitle" style="margin-top:10px;">Packages the cyber agent's findings into a structured handoff for escalation.</p>
+
+    <div class="callout" style="font-size:13px;">
+      <span class="tag">Note</span>
+      Live script from my home-lab server. Tokens, IDs, phone numbers and other secrets have been replaced with
+      placeholders like <code>&lt;WHATSAPP_GROUP_ID&gt;</code> — everything else is the real, running code.
+    </div>
+
+    <pre data-lang="python"><code>#!/usr/bin/env python3
+import datetime
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+
+REPORT = "/home/lanky/reports/agent-cyber-analyst-latest.md"
+STATE_DIR = "/var/lib/lanky-cyber-handoff"
+STATE_FILE = os.path.join(STATE_DIR, "active.json")
+LEDGER = "/home/lanky/reports/cyber-handoffs.jsonl"
+INBOX_DIR = "/home/codex/agents/handoffs"
+ACCEPTED_RISKS = "/etc/lanky-security/accepted-risks.json"
+
+
+def run(command: list[str], timeout: int = 420) -&gt; subprocess.CompletedProcess:
+    try:
+        return subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return subprocess.CompletedProcess(command, 124, f"Timed out: {exc}")
+
+
+def write_ledger(record: dict) -&gt; None:
+    os.makedirs(os.path.dirname(LEDGER), exist_ok=True)
+    with open(LEDGER, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+
+
+def accepted_warning_names() -&gt; set[str]:
+    try:
+        with open(ACCEPTED_RISKS, encoding="utf-8") as handle:
+            records = json.load(handle)
+    except (OSError, ValueError):
+        return set()
+    return {
+        item["finding"]
+        for item in records
+        if item.get("status") == "accepted" and item.get("finding")
+    }
+
+
+def findings(report: str) -&gt; list[dict]:
+    rows = []
+    accepted = accepted_warning_names()
+
+    external = re.search(r"External failed SSH authentication events:\s*(\d+)", report)
+    if external and int(external.group(1)):
+        rows.append({
+            "type": "ssh_external_failures",
+            "target": "ops-nas-admin",
+            "detail": external.group(0),
+        })
+
+    for item in re.findall(r"Invalid SSH username[^\n]+", report):
+        if "none" not in item.lower():
+            rows.append({"type": "invalid_ssh_user", "target": "ops-nas-admin", "detail": item})
+
+    warning_names = re.search(r"OpenClaw warnings:\s*([^\n]+)", report)
+    if warning_names:
+        for warning in [part.strip(" .") for part in warning_names.group(1).split(",")]:
+            if warning in accepted:
+                continue
+            rows.append({
+                "type": "openclaw_security_warning",
+                "target": "ops-nas-admin",
+                "detail": warning,
+            })
+
+    denied = re.search(
+        r"(?:Active )?sudo/authentication failures involving the lanky service account(?: \(last hour\))?:\s*(\d+)",
+        report,
+    )
+    if denied and int(denied.group(1)):
+        rows.append({
+            "type": "service_account_auth_failures",
+            "target": "ops-nas-admin",
+            "detail": denied.group(0),
+        })
+
+    if re.search(r"(?m)^- FAILED:|report was unavailable", report, re.I):
+        rows.append({
+            "type": "cyber_collection_failure",
+            "target": "ops-nas-admin",
+            "detail": "Cyber security data collection or remediation failed.",
+        })
+
+    # Future AV/CVE reports can name an owning stack directly.
+    lower = report.lower()
+    if "malware" in lower or "infected files:" in lower:
+        target = "jellyfin-admin" if "/mnt/jelly" in lower else "ops-nas-admin"
+        rows.append({"type": "malware_finding", "target": target, "detail": "Malware/AV finding present."})
+    if "homeassistant" in lower and ("critical cve" in lower or "high cve" in lower):
+        rows.append({"type": "home_assistant_cve", "target": "home-assistant-admin", "detail": "Home Assistant image CVE finding."})
+    if any(name in lower for name in ("jellyfin", "sonarr", "radarr", "prowlarr")) and (
+        "critical cve" in lower or "high cve" in lower
+    ):
+        rows.append({"type": "media_cve", "target": "jellyfin-admin", "detail": "Media stack image CVE finding."})
+
+    unique = {}
+    for row in rows:
+        key = hashlib.sha256(
+            f"{row['type']}|{row['target']}|{row['detail']}".encode()
+        ).hexdigest()[:16]
+        row["id"] = key
+        unique[key] = row
+    return list(unique.values())
+
+
+def dispatch(item: dict) -&gt; dict:
+    target = item["target"]
+    os.makedirs(INBOX_DIR, exist_ok=True)
+    inbox = os.path.join(INBOX_DIR, f"{target}.json")
+    payload = {
+        **item,
+        "source": "cyber-analyst",
+        "created": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    with open(inbox, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+
+    unit = f"lanky-agent@{target}.service"
+    result = run(["systemctl", "start", unit])
+    if result.returncode:
+        status = "dispatch_failed"
+        detail = result.stdout.strip()
+    else:
+        report_path = f"/home/lanky/reports/agent-{target}-latest.md"
+        try:
+            recipient = open(report_path, encoding="utf-8", errors="replace").read()
+        except OSError as exc:
+            recipient = str(exc)
+        if f"Cyber handoff {item['id']}" not in recipient:
+            status = "not_acknowledged"
+            detail = "Recipient report did not acknowledge the handoff."
+        elif "HANDOFF ESCALATED:" in recipient:
+            status = "escalated_l3"
+            detail = "Recipient accepted the finding but requires L3."
+        elif "HANDOFF FIXED:" in recipient:
+            status = "fixed"
+            detail = "Recipient reports a verified fix."
+        else:
+            status = "accepted"
+            detail = "Recipient accepted the finding for monitoring."
+    try:
+        os.unlink(inbox)
+    except OSError:
+        pass
+    return {**payload, "status": status, "result": detail}
+
+
+def main() -&gt; int:
+    os.makedirs(STATE_DIR, exist_ok=True)
+    try:
+        report = open(REPORT, encoding="utf-8", errors="replace").read()
+    except OSError as exc:
+        print(f"Cyber handoff failed: {exc}", file=sys.stderr)
+        return 1
+
+    current = {item["id"]: item for item in findings(report)}
+    try:
+        active = json.load(open(STATE_FILE, encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        active = {}
+
+    for finding_id in sorted(set(active) - set(current)):
+        write_ledger({
+            **active[finding_id],
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "status": "resolved",
+        })
+
+    updated = {}
+    for finding_id, item in current.items():
+        previous = active.get(finding_id)
+        if previous and previous.get("status") in {
+            "fixed", "accepted", "escalated_l3", "not_acknowledged"
+        }:
+            updated[finding_id] = previous
+            continue
+        result = dispatch(item)
+        result["timestamp"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        write_ledger(result)
+        updated[finding_id] = result
+        print(f"{finding_id} -&gt; {item['target']}: {result['status']}")
+
+    with open(STATE_FILE, "w", encoding="utf-8") as handle:
+        json.dump(updated, handle, indent=2)
+    escalation = run(["/home/lanky/scripts/l3-escalation.py", "sync"], timeout=150)
+    if escalation.returncode:
+        print("L3 escalation notification failed.", file=sys.stderr)
+    if not current:
+        print("No Cyber findings required cross-agent handoff.")
+    return 1 if escalation.returncode else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#scripts">back to scripts</a></p>
+  </article>
+
+  <footer><div class="wrap">cyber-handoff.py · script · Lanky &nbsp;·&nbsp; <a href="../index.html#scripts">all scripts</a></div></footer>
+</body>
+</html>
