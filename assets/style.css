@@ -306,6 +306,12 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
   letter-spacing: .5px; color: #0b0d14; background: var(--green); padding: 2px 6px; border-radius: 5px; }
 .cert .newtag { top: 14px; right: 14px; }
 .pill.newpill { color: #0b0d14; background: var(--green); border-color: var(--green); font-weight: 700; }
+
+/* project status tags: Under construction · Just gone Live · Live · Retired */
+.pill.st-build   { color: var(--amber); border-color: rgba(240,180,0,0.45); }
+.pill.st-new     { color: #0b0d14; background: var(--green); border-color: var(--green); font-weight: 700; }
+.pill.st-live    { color: var(--green); border-color: var(--green-dim); }
+.pill.st-retired { color: var(--fg-dim); border-color: var(--border); }
 .bcard.feat img { width: 92px; height: 92px; }
 .dot.def { background: #b388ff; } .rd.def { color: #b388ff; }
 
