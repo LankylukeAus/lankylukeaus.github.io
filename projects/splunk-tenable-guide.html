@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tenable Hardening Dashboard: System Guide · Lanky</title>
+  <meta name="description" content="Technical documentation for the Splunk and Tenable hardening dashboard: data model, SPL searches, input configuration and the procedure for moving from synthetic to live Tenable data.">
+  <link rel="stylesheet" href="../assets/style.css?v=2">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128202;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="splunk-tenable.html">← back to the project</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="splunk-tenable.html">back to the project</a>
+    <h1 style="margin-top:16px;">Tenable Hardening Dashboard: System Guide</h1>
+    <div class="subtitle">Technical documentation I wrote for the Splunk and Tenable dashboard</div>
+    <div class="machine-meta">
+      <span class="pill">Splunk</span>
+      <span class="pill">SPL / tstats</span>
+      <span class="pill">Data model</span>
+      <span class="pill">Tenable VM</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">About this document</span>
+      This is the operating guide I wrote alongside the dashboard. It specifies the data model the searches depend on,
+      every SPL search behind the panels, the input and field-extraction configuration, and the procedure for
+      replacing the synthetic dataset with a live Tenable feed. It is written so someone else could take the build
+      into production without me.
+    </div>
+
+    <h2><span class="num">01</span>Purpose and panel order</h2>
+    <p>The dashboard presents monthly hardening and compliance results in a deliberate order:</p>
+    <ol>
+      <li>Monthly compliance trend</li>
+      <li>Hosts, latest compliance, and latest critical findings</li>
+      <li>High-risk non-compliant items, always one row per host and control</li>
+      <li>Host hardening items, showing every latest compliant and non-compliant result</li>
+      <li>Supporting host summary and compliance-by-host chart</li>
+    </ol>
+    <p>
+      Two dashboard tokens drive the filtering: <code>$os_filter$</code> (selected operating system, or <code>*</code>)
+      and <code>$host_filter$</code> (selected hostname, or <code>*</code>). The time window runs
+      <code>-13mon@mon</code> through <code>now</code>.
+    </p>
+
+    <h2><span class="num">02</span>Required data model</h2>
+    <p>
+      The searches read indexed CSV fields via <code>tstats</code>. These exact field names must be preserved when the
+      synthetic data is replaced with a live feed.
+    </p>
+
+    <h3><code>tenable:hardening</code> — one host summary per scan</h3>
+    <div class="stack-wrap">
+    <table class="stack">
+      <thead><tr><th>Field</th><th>Meaning</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td>scan_date</td><td>Scan date, used as <code>_time</code></td><td><code>2026-07-15</code></td></tr>
+        <tr><td>scan_id</td><td>Unique scan identifier</td><td><code>monthly-cis-202607</code></td></tr>
+        <tr><td>hostname</td><td>Normalised host name</td><td><code>rhel8-web01</code></td></tr>
+        <tr><td>ip_address</td><td>Host IP at scan time</td><td><code>10.20.5.14</code></td></tr>
+        <tr><td>operating_system</td><td>Normalised OS label</td><td><code>RHEL 8</code></td></tr>
+        <tr><td>compliance_pct</td><td>Passed checks / total checks × 100</td><td><code>91.4</code></td></tr>
+        <tr><td>critical_findings</td><td>Critical failed checks</td><td><code>2</code></td></tr>
+        <tr><td>high_findings</td><td>High failed checks</td><td><code>7</code></td></tr>
+        <tr><td>medium_findings</td><td>Medium failed checks</td><td><code>14</code></td></tr>
+        <tr><td>passed_checks</td><td>Passed audit checks</td><td><code>137</code></td></tr>
+        <tr><td>failed_checks</td><td>Failed audit checks</td><td><code>23</code></td></tr>
+        <tr><td>scan_policy</td><td>Audit or policy name</td><td><code>CIS RHEL 8 Level 1</code></td></tr>
+        <tr><td>data_source</td><td>Source system</td><td><code>Tenable VM</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h3><code>tenable:highrisk</code> — one host/control result per scan</h3>
+    <div class="stack-wrap">
+    <table class="stack">
+      <thead><tr><th>Field</th><th>Meaning</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td>scan_date</td><td>Scan date, used as <code>_time</code></td><td><code>2026-07-15</code></td></tr>
+        <tr><td>scan_id</td><td>Unique scan identifier</td><td><code>monthly-cis-202607</code></td></tr>
+        <tr><td>hostname</td><td>Normalised host name</td><td><code>rhel8-web01</code></td></tr>
+        <tr><td>ip_address</td><td>Host IP</td><td><code>10.20.5.14</code></td></tr>
+        <tr><td>operating_system</td><td>Normalised OS label</td><td><code>RHEL 8</code></td></tr>
+        <tr><td>control_id</td><td>Stable audit/plugin/control ID</td><td><code>LNX-PRIV-001</code></td></tr>
+        <tr><td>control</td><td>Human-readable check title</td><td>/bin/bash ownership and permissions</td></tr>
+        <tr><td>severity</td><td><code>Critical</code> or <code>High</code></td><td><code>Critical</code></td></tr>
+        <tr><td>status</td><td>Exactly <code>Compliant</code> or <code>Non-compliant</code></td><td><code>Non-compliant</code></td></tr>
+        <tr><td>expected_setting</td><td>Secure target configuration</td><td><code>root:root with mode 0755</code></td></tr>
+        <tr><td>risk_reason</td><td>Why failure could enable administrative access</td><td>Writable shell may allow root code execution</td></tr>
+        <tr><td>data_source</td><td>Source system</td><td><code>Tenable VM</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p>
+      Operating-system values are normalised to: <code>Windows Server 2016</code>, <code>Windows Server 2019</code>,
+      <code>Windows Server 2022</code>, <code>RHEL 7</code>, <code>RHEL 8</code>, <code>RHEL 9</code> and
+      <code>OEL 8</code>.
+    </p>
+
+    <h2><span class="num">03</span>Inputs and timestamp extraction</h2>
+    <p>
+      Input configuration lives in <code>tenable_hardening_app/default/inputs.conf</code>, with field extraction in
+      <code>props.conf</code>:
+    </p>
+    <pre data-lang="ini"><code>[tenable:hardening]
+INDEXED_EXTRACTIONS = csv
+HEADER_FIELD_LINE_NUMBER = 1
+TIMESTAMP_FIELDS = scan_date
+TIME_FORMAT = %Y-%m-%d
+TZ = Australia/Adelaide
+SHOULD_LINEMERGE = false
+
+[tenable:highrisk]
+INDEXED_EXTRACTIONS = csv
+HEADER_FIELD_LINE_NUMBER = 1
+TIMESTAMP_FIELDS = scan_date
+TIME_FORMAT = %Y-%m-%d
+TZ = Australia/Adelaide
+SHOULD_LINEMERGE = false</code></pre>
+    <p>
+      In production, write normalised events to the monitored CSV paths, send them through the Splunk HTTP Event
+      Collector with the same sourcetypes, or adapt the searches to the sourcetypes created by the official Tenable
+      Add-on for Splunk.
+    </p>
+
+    <h2><span class="num">04</span>The SPL behind each panel</h2>
+
+    <h3>Operating-system selector</h3>
+    <pre data-lang="spl"><code>| tstats count where index=main sourcetype="tenable:hardening"
+  by operating_system
+| sort operating_system</code></pre>
+
+    <h3>Host selector</h3>
+    <pre data-lang="spl"><code>| tstats count where index=main sourcetype="tenable:highrisk"
+  operating_system="$os_filter$"
+  by hostname
+| sort hostname</code></pre>
+
+    <h3>Monthly compliance trend</h3>
+    <pre data-lang="spl"><code>| tstats avg(compliance_pct) as "Compliance %"
+  where index=main sourcetype="tenable:hardening"
+  operating_system="$os_filter$"
+  by _time span=1mon operating_system
+| xyseries _time operating_system "Compliance %"</code></pre>
+
+    <h3>Host count</h3>
+    <pre data-lang="spl"><code>| tstats dc(hostname) as hosts
+  where index=main sourcetype="tenable:hardening"
+  operating_system="$os_filter$"</code></pre>
+
+    <h3>Latest compliance</h3>
+    <pre data-lang="spl"><code>| tstats avg(compliance_pct) as compliance
+  where index=main sourcetype="tenable:hardening"
+  operating_system="$os_filter$"
+  by _time span=1mon
+| sort - _time
+| head 1
+| eval compliance=round(compliance,1)."%"</code></pre>
+
+    <h3>Latest critical findings</h3>
+    <pre data-lang="spl"><code>| tstats sum(critical_findings) as critical
+  where index=main sourcetype="tenable:hardening"
+  operating_system="$os_filter$"
+  by _time span=1mon
+| sort - _time
+| head 1</code></pre>
+
+    <h3>High-risk non-compliant items</h3>
+    <pre data-lang="spl"><code>| tstats latest(scan_date) as "Scan Date"
+  latest(status) as Status
+  latest(expected_setting) as "Expected Setting"
+  latest(risk_reason) as "Why This Is High Risk"
+  latest(severity) as Severity
+  where index=main sourcetype="tenable:highrisk"
+  operating_system="$os_filter$" hostname="$host_filter$"
+  by hostname operating_system control_id control
+| where Status="Non-compliant"
+| eval severity_order=case(Severity="Critical",1,Severity="High",2,true(),3)
+| sort severity_order operating_system hostname control
+| fields - severity_order
+| rename hostname as Host operating_system as "Operating System"
+  control_id as "Control ID" control as "High-risk Item"</code></pre>
+
+    <h3>Host hardening items, latest result per item</h3>
+    <pre data-lang="spl"><code>| tstats latest(scan_date) as "Scan Date"
+  latest(status) as "Scan Result"
+  latest(severity) as Severity
+  latest(expected_setting) as "Expected Setting"
+  latest(risk_reason) as Risk
+  where index=main sourcetype="tenable:highrisk"
+  operating_system="$os_filter$" hostname="$host_filter$"
+  by hostname operating_system control_id control
+| eval result_order=case('Scan Result'="Non-compliant",1,true(),2),
+       severity_order=case(Severity="Critical",1,Severity="High",2,true(),3)
+| sort result_order severity_order hostname control
+| fields - result_order severity_order
+| rename hostname as Host operating_system as "Operating System"
+  control_id as "Control ID" control as "Hardening Item"</code></pre>
+
+    <h3>Latest host summary</h3>
+    <pre data-lang="spl"><code>| tstats latest(ip_address) as "IP Address"
+  latest(compliance_pct) as "Compliance %"
+  latest(critical_findings) as Critical
+  latest(high_findings) as High
+  latest(medium_findings) as Medium
+  latest(passed_checks) as Passed
+  latest(failed_checks) as Failed
+  where index=main sourcetype="tenable:hardening"
+  operating_system="$os_filter$"
+  by hostname operating_system
+| sort operating_system hostname
+| rename hostname as Host operating_system as "Operating System"</code></pre>
+
+    <h3>Compliance by host</h3>
+    <pre data-lang="spl"><code>| tstats latest(compliance_pct) as "Compliance %"
+  where index=main sourcetype="tenable:hardening"
+  operating_system="$os_filter$"
+  by hostname
+| sort - "Compliance %"</code></pre>
+
+    <h2><span class="num">05</span>Moving from synthetic to live Tenable data</h2>
+    <ol>
+      <li>Install and configure the official Tenable Add-on for Splunk, or build an API collector using a restricted Tenable service account.</li>
+      <li>Export asset data plus vulnerability and compliance findings. Preserve open, reopened and fixed/passed states so the latest status stays accurate.</li>
+      <li>Convert each scan to the two schemas above. Use a stable asset UUID internally where available, even if <code>hostname</code> remains the dashboard label.</li>
+      <li>Calculate the host summary once per completed scan. Do not derive compliance from only critical and high findings; include every applicable audit check.</li>
+      <li>Map Tenable audit results consistently: <code>PASSED</code> to <code>Compliant</code>, <code>FAILED</code> to <code>Non-compliant</code>. Decide explicitly how <code>WARNING</code>, <code>ERROR</code> and manual-review results should appear.</li>
+      <li>Mark privilege-escalation controls as High or Critical using an approved control catalogue, not title keyword matching alone.</li>
+      <li>Send events to a production index such as <code>tenable</code>, then change <code>index=main</code> in every search.</li>
+      <li>Validate event counts, latest scan dates, OS normalisation and one known host before releasing the dashboard to users.</li>
+      <li>Store API keys in Splunk's encrypted credential storage or a secrets manager. Never put keys in dashboard XML, scripts or CSV files.</li>
+    </ol>
+    <p>
+      Tenable Vulnerability Management uses asynchronous export jobs for assets, vulnerabilities and compliance data,
+      so the collector has to poll for job completion rather than expecting a synchronous response.
+    </p>
+
+    <h2><span class="num">06</span>Production validation searches</h2>
+    <p>Run these after cutting over, before the dashboard is released:</p>
+    <pre data-lang="spl"><code>| tstats count min(_time) as first max(_time) as last
+  where index=tenable sourcetype="tenable:hardening"
+  by operating_system
+| convert ctime(first) ctime(last)</code></pre>
+    <pre data-lang="spl"><code>| tstats latest(status) as status
+  where index=tenable sourcetype="tenable:highrisk"
+  by hostname operating_system control_id control
+| stats count by operating_system status</code></pre>
+    <p>Hosts whose most recent scan is older than 35 days:</p>
+    <pre data-lang="spl"><code>| tstats latest(scan_date) as scan_date
+  where index=tenable sourcetype="tenable:highrisk"
+  by hostname
+| where strptime(scan_date,"%Y-%m-%d") &lt; relative_time(now(),"-35d")
+| rename hostname as "Host with stale scan" scan_date as "Latest scan"</code></pre>
+
+    <div class="callout">
+      <span class="tag">Note on the data</span>
+      The lab runs on twelve months of synthetic, clearly-labelled Tenable-style scan data generated by a Python
+      script, so every panel and trend is fully populated without touching a real scanner. All host names, IPs and
+      results in this document are from that synthetic dataset.
+    </div>
+
+    <p style="margin-top:40px;"><a class="back" href="splunk-tenable.html">back to the project</a></p>
+  </article>
+
+  <footer><div class="wrap">Tenable Hardening Dashboard guide · Lanky &nbsp;·&nbsp; <a href="../index.html#projects">all projects</a></div></footer>
+</body>
+</html>

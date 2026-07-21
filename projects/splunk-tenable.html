@@ -71,12 +71,24 @@
       entire environment stands up from a single compose file: Splunk, the data and the dashboard together.
     </p>
 
-    <h2><span class="num">04</span>What this demonstrates</h2>
+    <h2><span class="num">04</span>Documentation</h2>
+    <p>
+      I wrote an operating guide alongside the build so someone else could take it into production without me. It
+      specifies the data model the searches depend on, every SPL search behind the panels, the input and
+      field-extraction configuration, and a nine-step procedure for replacing the synthetic dataset with a live
+      Tenable feed, including the validation searches to run before releasing it to users.
+    </p>
+    <div class="contact" style="margin:14px 0 6px;">
+      <a class="btn primary" href="splunk-tenable-guide.html">Read the system guide</a>
+    </div>
+
+    <h2><span class="num">05</span>What this demonstrates</h2>
     <ul>
       <li>Vulnerability management end-to-end: ingesting scanner output and reporting on remediation &amp; hardening posture, exactly the VM workflow I work with.</li>
       <li>SIEM / detection engineering: Splunk data onboarding, sourcetypes, SPL, and dashboard building.</li>
       <li>Compliance trending: turning point-in-time scans into a defensible month-over-month posture story for stakeholders.</li>
       <li>Repeatable infrastructure: the whole lab is one Docker Compose file with a documented path to a live Tenable feed.</li>
+      <li>Technical writing: an operating guide precise enough for another analyst to take the build into production, including data-model specs and cut-over validation.</li>
     </ul>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#projects">back to projects</a></p>
