@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Self-Hosted Home Lab — Project (Lanky)</title>
-  <meta name="description" content="A 35+ container self-hosted server on Ubuntu — reverse proxy, Cloudflare Tunnels, WireGuard VPN and Pi-hole DNS.">
+  <title>Self-Hosted Home Lab · Lanky</title>
+  <meta name="description" content="A 35+ container self-hosted server on Ubuntu with a reverse proxy, Cloudflare Tunnels, WireGuard VPN and Pi-hole DNS.">
   <link rel="stylesheet" href="../assets/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128421;</text></svg>">
 </head>
@@ -18,7 +18,7 @@
 
   <article class="wrap">
     <a class="back" href="../index.html#projects">back to projects</a>
-    <h1 style="margin-top:16px;">🖥️ Self-Hosted Home Lab</h1>
+    <h1 style="margin-top:16px;">Self-Hosted Home Lab</h1>
     <div class="subtitle">35+ Docker containers on Ubuntu · reverse proxy, tunnels, VPN &amp; DNS filtering</div>
     <div class="machine-meta">
       <span class="pill os-linux">Ubuntu Linux</span>
@@ -30,17 +30,17 @@
 
     <div class="callout">
       <span class="tag">Summary</span>
-      A production-style <strong>self-hosted server</strong> running <strong>35+ Docker containers</strong> across a
-      dozen compose stacks on Ubuntu (with an NVIDIA GPU for AI workloads). It's fronted by a proper edge —
-      <strong>Nginx Proxy Manager</strong> for TLS, <strong>Cloudflare Tunnels</strong> for zero-open-port ingress, a
-      <strong>WireGuard</strong> VPN for remote access, and <strong>Pi-hole</strong> for network-wide DNS filtering —
-      and it's the platform every other project on this page runs on.
+      A production-style self-hosted server running 35+ Docker containers across a
+      dozen compose stacks on Ubuntu (with an NVIDIA GPU for AI workloads). It sits behind a proper edge:
+      Nginx Proxy Manager for TLS, Cloudflare Tunnels for zero-open-port ingress, a
+      WireGuard VPN for remote access, and Pi-hole for network-wide DNS filtering.
+      It is the platform every other project on this page runs on.
     </div>
 
-    <h2><span class="num">01</span>What it does</h2>
+    <h2><span class="num">01</span>How it is built</h2>
     <p>
-      It's my hands-on environment for <strong>Linux administration, containerisation, networking and defensive
-      hardening</strong>. Nothing is exposed by punching holes in the router: inbound web traffic arrives through
+      It's my hands-on environment for Linux administration, containerisation, networking and defensive
+      hardening. Nothing is exposed by punching holes in the router: inbound web traffic arrives through
       Cloudflare Tunnels, remote access is via WireGuard, and internal services sit behind a reverse proxy with TLS.
       Pi-hole filters DNS for the whole network, config is backed up to a NAS on a schedule, and the
       <a class="link" href="agent-team.html">AI agent team</a> keeps the whole thing monitored and self-healing.
@@ -52,9 +52,9 @@
       <thead><tr><th>Component</th><th>Image</th><th>Role</th></tr></thead>
       <tbody>
         <tr><td>Nginx Proxy Manager</td><td><code>jc21/nginx-proxy-manager</code></td><td>Reverse proxy + Let's Encrypt TLS for all internal services (ports 80/443).</td></tr>
-        <tr><td>Cloudflare Tunnel</td><td><code>cloudflare/cloudflared</code></td><td>Outbound-only ingress — publishes services with no inbound firewall ports open.</td></tr>
+        <tr><td>Cloudflare Tunnel</td><td><code>cloudflare/cloudflared</code></td><td>Outbound-only ingress: publishes services with no inbound firewall ports open.</td></tr>
         <tr><td>WireGuard</td><td><code>linuxserver/wireguard</code></td><td>Fast VPN for secure remote access back into the lab (UDP 51820).</td></tr>
-        <tr><td>Pi-hole</td><td><code>pihole/pihole</code></td><td>Network-wide DNS sinkhole — ad/tracker/malware blocking for every device.</td></tr>
+        <tr><td>Pi-hole</td><td><code>pihole/pihole</code></td><td>Network-wide DNS sinkhole: ad/tracker/malware blocking for every device.</td></tr>
         <tr><td>Pi-hole edge</td><td><code>nginx:alpine</code></td><td>Lightweight nginx front for the Pi-hole admin UI.</td></tr>
         <tr><td>PostgreSQL / MariaDB</td><td><code>postgres:16</code>, <code>mariadb</code></td><td>Shared databases backing the app stacks.</td></tr>
         <tr><td>Host</td><td>Ubuntu Server + NVIDIA GPU</td><td>Bare-metal host; GPU passthrough for the local-AI workloads.</td></tr>
@@ -64,21 +64,20 @@
 
     <h2><span class="num">03</span>What runs on top</h2>
     <p>
-      The same server hosts the other projects here — the <a class="link" href="splunk-tenable.html">Splunk × Tenable</a>
+      The same server hosts the other projects here: the <a class="link" href="splunk-tenable.html">Splunk × Tenable</a>
       SIEM lab, the <a class="link" href="agent-team.html">AI agent team</a>, the
       <a class="link" href="llm-stack.html">private LLM stack</a>, the
       <a class="link" href="smart-home.html">Home Assistant smart home</a>, the
       <a class="link" href="media-server.html">media server</a> and the
-      <a class="link" href="homestead.html">Australian Homestead</a> WordPress site — all isolated in their own compose
-      stacks and published through the shared edge.
+      <a class="link" href="homestead.html">Australian Homestead</a> WordPress site. All are isolated in their own compose stacks and published through the shared edge.
     </p>
 
-    <h2><span class="num">04</span>Why I built it &amp; skills shown</h2>
+    <h2><span class="num">04</span>What this demonstrates</h2>
     <ul>
-      <li><strong>Linux &amp; Docker at scale</strong> — a dozen compose stacks, shared networks, volumes and databases kept healthy together.</li>
-      <li><strong>Secure networking</strong> — reverse proxy + TLS, tunnel-based ingress with no open ports, VPN remote access and DNS filtering.</li>
-      <li><strong>Defensive hardening</strong> — least-exposure architecture, segmentation, secrets handling and scheduled backups.</li>
-      <li><strong>Operations</strong> — it runs 24/7 for real, monitored by an automated agent team rather than by hand.</li>
+      <li>Linux &amp; Docker at scale: a dozen compose stacks, shared networks, volumes and databases kept healthy together.</li>
+      <li>Secure networking: reverse proxy + TLS, tunnel-based ingress with no open ports, VPN remote access and DNS filtering.</li>
+      <li>Defensive hardening: least-exposure architecture, segmentation, secrets handling and scheduled backups.</li>
+      <li>Operations: it runs 24/7 for real, monitored by an automated agent team rather than by hand.</li>
     </ul>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#projects">back to projects</a></p>

@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Private LLM Stack — Project (Lanky)</title>
-  <meta name="description" content="A fully self-hosted, offline AI stack — Ollama serving local models on a GPU with Open WebUI as the front end.">
+  <title>Private LLM Stack · Lanky</title>
+  <meta name="description" content="A fully self-hosted, offline AI stack running Ollama on a GPU with Open WebUI as the front end.">
   <link rel="stylesheet" href="../assets/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#129504;</text></svg>">
 </head>
@@ -18,7 +18,7 @@
 
   <article class="wrap">
     <a class="back" href="../index.html#projects">back to projects</a>
-    <h1 style="margin-top:16px;">🧠 Private LLM Stack</h1>
+    <h1 style="margin-top:16px;">Private LLM Stack</h1>
     <div class="subtitle">Local, offline AI · Ollama + Open WebUI on a GPU</div>
     <div class="machine-meta">
       <span class="pill">Ollama</span>
@@ -30,38 +30,36 @@
 
     <div class="callout">
       <span class="tag">Summary</span>
-      A <strong>fully self-hosted AI stack</strong> — <strong>Ollama</strong> serving local language models on an
-      NVIDIA GPU, with <strong>Open WebUI</strong> as the chat front end. Nothing leaves the network, so it's a private
+      A fully self-hosted AI stack. Ollama serves local language models on an NVIDIA GPU, with Open WebUI as the chat front end. Nothing leaves the network, so it's a private
       sandbox for running models, testing prompts, and providing offline reasoning to the
       <a class="link" href="agent-team.html">agent team</a>.
     </div>
 
-    <h2><span class="num">01</span>What it does</h2>
+    <h2><span class="num">01</span>How it works</h2>
     <p>
       Ollama pulls and runs open models locally and exposes an API; Open WebUI gives it a clean ChatGPT-style
       interface with conversations, model switching and prompt management. Because it's all on-network, I can work with
-      sensitive or lab data without sending anything to a third-party API — and the same Ollama endpoint doubles as a
-      free, private inference backend for automation.
+      sensitive or lab data without sending anything to a third-party API. The same Ollama endpoint also doubles as a private inference backend for automation.
     </p>
 
-    <h2><span class="num">02</span>Components &amp; programs involved</h2>
+    <h2><span class="num">02</span>The stack</h2>
     <div class="stack-wrap">
     <table class="stack">
       <thead><tr><th>Component</th><th>Image</th><th>Role</th></tr></thead>
       <tbody>
         <tr><td>Ollama</td><td><code>ollama/ollama</code></td><td>Local model server with NVIDIA GPU passthrough; API bound to localhost (11434).</td></tr>
         <tr><td>Open WebUI</td><td><code>ghcr.io/open-webui/open-webui</code></td><td>Web chat front end, talks to Ollama over an internal Docker network.</td></tr>
-        <tr><td>Shared network</td><td><code>ai-net</code> (Docker)</td><td>Private bridge so the two containers — and the agent services — reach Ollama by name, not exposed port.</td></tr>
+        <tr><td>Shared network</td><td><code>ai-net</code> (Docker)</td><td>Private bridge so the two containers: and the agent services: reach Ollama by name, not exposed port.</td></tr>
       </tbody>
     </table>
     </div>
 
-    <h2><span class="num">03</span>Why I built it &amp; skills shown</h2>
+    <h2><span class="num">03</span>Why run it locally</h2>
     <ul>
-      <li><strong>Self-hosted AI</strong> — running and serving LLMs locally with GPU acceleration.</li>
-      <li><strong>Data privacy by design</strong> — an offline alternative to cloud AI, so nothing sensitive leaves the network.</li>
-      <li><strong>Integration</strong> — the local endpoint backs other projects (the agent team) instead of a paid API.</li>
-      <li><strong>Container networking</strong> — a private shared network keeps the API off any public port.</li>
+      <li>Self-hosted AI: running and serving LLMs locally with GPU acceleration.</li>
+      <li>Data privacy by design: an offline alternative to cloud AI, so nothing sensitive leaves the network.</li>
+      <li>Integration: the local endpoint backs other projects (the agent team) instead of a paid API.</li>
+      <li>Container networking: a private shared network keeps the API off any public port.</li>
     </ul>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#projects">back to projects</a></p>

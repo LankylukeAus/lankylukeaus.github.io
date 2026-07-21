@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cyber Deck — Project (Lanky)</title>
+  <title>Cyber Deck · Lanky</title>
   <meta name="description" content="A self-hosted infosec news & threat-intelligence dashboard aggregating CVEs, breaches, threat actors and social feeds in real time.">
   <link rel="stylesheet" href="../assets/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128225;</text></svg>">
@@ -18,14 +18,14 @@
 
   <article class="wrap">
     <a class="back" href="../index.html#projects">back to projects</a>
-    <h1 style="margin-top:16px;">🛰️ Cyber Deck</h1>
+    <h1 style="margin-top:16px;">Cyber Deck</h1>
     <div class="subtitle">Threat-intelligence dashboard · <a href="https://deck.lankyonline.org/" target="_blank" rel="noopener">deck.lankyonline.org ↗</a></div>
     <div class="machine-meta">
       <span class="pill">Threat intel</span>
       <span class="pill">CVE tracking</span>
       <span class="pill">RSS / social aggregation</span>
       <span class="pill">Self-hosted</span>
-      <span class="pill st-build">🚧 Under construction</span>
+      <span class="pill st-build">Under construction</span>
     </div>
 
     <div class="contact" style="margin:0 0 22px;">
@@ -34,13 +34,10 @@
 
     <div class="callout">
       <span class="tag">Summary</span>
-      A self-hosted <strong>infosec news &amp; threat-intelligence dashboard</strong> that tracks security events as
-      they break — new <strong>CVEs &amp; vulnerabilities</strong>, <strong>data-breach</strong> reports,
-      <strong>threat-actor</strong> activity and general infosec, alongside live social feeds — pulled into one
-      continuously-updating board. It's the "what's happening right now" layer I check before the day starts.
+      A self-hosted infosec news &amp; threat-intelligence dashboard that tracks security events as they break: new CVEs, data-breach reports, threat-actor activity and general infosec news, alongside live social feeds, pulled into one continuously updating board. It's the "what's happening right now" layer I check before the day starts.
     </div>
 
-    <h2><span class="num">01</span>What it does</h2>
+    <h2><span class="num">01</span>How it works</h2>
     <p>
       A background collector polls a curated set of security and social sources on a schedule, normalises them, and
       stores them in a database; the web front end renders them as a live, categorised board. RSS Bridge turns sources
@@ -48,12 +45,12 @@
       read. The whole thing is published securely through a Cloudflare Tunnel, so there are no open inbound ports.
     </p>
 
-    <h2><span class="num">02</span>Components &amp; programs involved</h2>
+    <h2><span class="num">02</span>The stack</h2>
     <div class="stack-wrap">
     <table class="stack">
       <thead><tr><th>Component</th><th>Image</th><th>Role</th></tr></thead>
       <tbody>
-        <tr><td>Web app</td><td><code>cyber-deck-web</code> (custom)</td><td>The dashboard UI — renders the categorised, live-updating board (8098).</td></tr>
+        <tr><td>Web app</td><td><code>cyber-deck-web</code> (custom)</td><td>The dashboard UI: renders the categorised, live-updating board (8098).</td></tr>
         <tr><td>Collector</td><td><code>cyber-deck-collector</code> (custom)</td><td>Scheduled worker that fetches, parses and de-duplicates sources into the database.</td></tr>
         <tr><td>RSS Bridge</td><td><code>rssbridge/rss-bridge</code></td><td>Generates feeds from sites without native RSS (social platforms, etc.).</td></tr>
         <tr><td>Database</td><td><code>postgres:16-alpine</code></td><td>Stores collected items, categories and de-dup state.</td></tr>
@@ -62,11 +59,11 @@
     </table>
     </div>
 
-    <h2><span class="num">03</span>Why I built it &amp; skills shown</h2>
+    <h2><span class="num">03</span>Why I built it</h2>
     <ul>
-      <li><strong>Threat intelligence</strong> — a real, running feed of CVEs, breaches and threat-actor activity I use for context in defensive work.</li>
-      <li><strong>Data pipeline</strong> — scheduled collection, parsing, de-duplication and storage across multiple source types.</li>
-      <li><strong>Full-stack self-hosting</strong> — custom web + worker services, a database, and secure tunnelled publishing.</li>
+      <li>Threat intelligence: a real, running feed of CVEs, breaches and threat-actor activity I use for context in defensive work.</li>
+      <li>Data pipeline: scheduled collection, parsing, de-duplication and storage across multiple source types.</li>
+      <li>Full-stack self-hosting: custom web + worker services, a database, and secure tunnelled publishing.</li>
     </ul>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#projects">back to projects</a></p>

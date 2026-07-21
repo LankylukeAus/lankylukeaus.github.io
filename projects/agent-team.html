@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Agent Ops Team — Project (Lanky)</title>
+  <title>Autonomous Agent Operations Team · Lanky</title>
   <meta name="description" content="An autonomous multi-agent operations team that monitors and self-heals a 35-container home lab, with a WhatsApp L1 service desk.">
   <link rel="stylesheet" href="../assets/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#129302;</text></svg>">
@@ -18,7 +18,7 @@
 
   <article class="wrap">
     <a class="back" href="../index.html#projects">back to projects</a>
-    <h1 style="margin-top:16px;">🤖 AI Agent Ops Team</h1>
+    <h1 style="margin-top:16px;">Autonomous Agent Operations Team</h1>
     <div class="subtitle">Autonomous, multi-agent operations for the home lab · LLM + Linux automation</div>
     <div class="machine-meta">
       <span class="pill">Multi-agent LLMs</span>
@@ -29,14 +29,13 @@
 
     <div class="callout">
       <span class="tag">Summary</span>
-      An <strong>autonomous operations team</strong> made of LLM agents that monitor and self-heal my home lab around
-      the clock. <strong>Eight specialist "L2" agents</strong> each own a domain (security, DNS, networking,
-      containers, backups, updates, media, storage), a <strong>manager agent</strong> supervises them, and an
-      <strong>"L1 service desk"</strong> handles alerts and chat over WhatsApp — modelled on a real L1 → L2 → L3 IT
-      support structure, with me + Claude as L3.
+      An autonomous operations team made of LLM agents that monitor and self-heal my home lab around
+      the clock. Eight specialist "L2" agents each own a domain (security, DNS, networking,
+      containers, backups, updates, media, storage), a manager agent supervises them, and an
+      "L1 service desk" handles alerts and chat over WhatsApp. The structure mirrors a real L1 to L3 IT support model, with me as the final escalation point.
     </div>
 
-    <h2><span class="num">01</span>What it does</h2>
+    <h2><span class="num">01</span>How it runs</h2>
     <p>
       Each agent runs on its own schedule, performs health checks over SSH against the server, catches configuration
       drift, remediates common failures automatically (restarting a wedged container, remounting a dropped share,
@@ -50,7 +49,7 @@
     <table class="stack">
       <thead><tr><th>Agent</th><th>Cadence</th><th>Responsibility</th></tr></thead>
       <tbody>
-        <tr><td>cyber</td><td>2h</td><td>Security posture — SSH, firewall (UFW), gateway audit.</td></tr>
+        <tr><td>cyber</td><td>2h</td><td>Security posture: SSH, firewall (UFW), gateway audit.</td></tr>
         <tr><td>docker</td><td>2h</td><td>Containers, the smart-home stack, disk &amp; GPU health.</td></tr>
         <tr><td>media</td><td>3h</td><td>Jellyfin media server health.</td></tr>
         <tr><td>network</td><td>30m</td><td>Internet uplink, mesh Wi-Fi nodes, latency.</td></tr>
@@ -58,12 +57,12 @@
         <tr><td>backup</td><td>6h</td><td>Verifies config backups to the NAS are recent.</td></tr>
         <tr><td>updates</td><td>daily</td><td>OS packages &amp; Docker image staleness.</td></tr>
         <tr><td>nas</td><td>4h</td><td>NAS capacity &amp; share availability.</td></tr>
-        <tr><td>manager</td><td>15m</td><td>Supervises the fleet — freshness, gap analysis, audits.</td></tr>
+        <tr><td>manager</td><td>15m</td><td>Supervises the fleet: freshness, gap analysis, audits.</td></tr>
       </tbody>
     </table>
     </div>
 
-    <h2><span class="num">03</span>Components &amp; programs involved</h2>
+    <h2><span class="num">03</span>Under the hood</h2>
     <div class="stack-wrap">
     <table class="stack">
       <thead><tr><th>Component</th><th>Tool</th><th>Role</th></tr></thead>
@@ -72,18 +71,18 @@
         <tr><td>PA services</td><td><code>lanky-pa</code>, <code>pa-agent</code></td><td>Containerised assistant/agent services (personal-assistant + agent runner) exposing the team's HTTP endpoints.</td></tr>
         <tr><td>Scheduling</td><td>systemd timers</td><td>Fire each agent on its cadence; the manager on a 15-minute timer.</td></tr>
         <tr><td>Execution</td><td>Bash + SSH</td><td>Agent scripts run health checks and remediations against the host over SSH.</td></tr>
-        <tr><td>Service desk</td><td>WhatsApp gateway</td><td>The L1 layer — pushes alerts and takes chat requests from my phone.</td></tr>
+        <tr><td>Service desk</td><td>WhatsApp gateway</td><td>The L1 layer: pushes alerts and takes chat requests from my phone.</td></tr>
         <tr><td>Audit trail</td><td>Reports + change-log</td><td>Every run writes a latest-report file and appends a structured change-log entry.</td></tr>
       </tbody>
     </table>
     </div>
 
-    <h2><span class="num">04</span>Why I built it &amp; skills shown</h2>
+    <h2><span class="num">04</span>What this demonstrates</h2>
     <ul>
-      <li><strong>Practical AIOps / SOC automation</strong> — turning monitoring and triage into an autonomous, tiered agent workflow.</li>
-      <li><strong>LLM orchestration</strong> — multiple cooperating agents with defined roles, a supervisor, and human escalation.</li>
-      <li><strong>Linux / infrastructure ops</strong> — SSH automation, systemd scheduling, self-remediation and auditable change tracking.</li>
-      <li><strong>Reliability engineering mindset</strong> — the same detect → remediate → report loop a real ops team runs, applied to a live 35-container estate.</li>
+      <li>Practical AIOps / SOC automation: turning monitoring and triage into an autonomous, tiered agent workflow.</li>
+      <li>LLM orchestration: multiple cooperating agents with defined roles, a supervisor, and human escalation.</li>
+      <li>Linux / infrastructure ops: SSH automation, systemd scheduling, self-remediation and auditable change tracking.</li>
+      <li>Reliability engineering mindset: the same detect → remediate → report loop a real ops team runs, applied to a live 35-container estate.</li>
     </ul>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#projects">back to projects</a></p>

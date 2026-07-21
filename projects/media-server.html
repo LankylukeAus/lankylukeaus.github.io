@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Media Server — Project (Lanky)</title>
+  <title>Jellyfin Media Server · Lanky</title>
   <meta name="description" content="A self-hosted Jellyfin media streaming server with GPU transcoding and a Jellyseerr request front end.">
   <link rel="stylesheet" href="../assets/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127916;</text></svg>">
@@ -18,7 +18,7 @@
 
   <article class="wrap">
     <a class="back" href="../index.html#projects">back to projects</a>
-    <h1 style="margin-top:16px;">🎬 Media Server — self-hosted streaming</h1>
+    <h1 style="margin-top:16px;">Jellyfin Media Server</h1>
     <div class="subtitle">Jellyfin streaming with GPU transcoding · Jellyseerr requests</div>
     <div class="machine-meta">
       <span class="pill">Jellyfin</span>
@@ -30,13 +30,13 @@
 
     <div class="callout">
       <span class="tag">Summary</span>
-      A self-hosted <strong>media streaming platform</strong> built on <strong>Jellyfin</strong> — my own media
-      library, hardware-transcoded on the GPU and streamed to any device on the network, with
-      <strong>Jellyseerr</strong> as a friendly "request a title" front end. A full replacement for a commercial
-      streaming subscription, running entirely on my own hardware.
+      A self-hosted media streaming platform built on Jellyfin. My own library is
+      hardware-transcoded on the GPU and streamed to any device on the network, with
+      Jellyseerr providing a request front end for the household. It replaces a commercial
+      streaming subscription and runs entirely on my own hardware.
     </div>
 
-    <h2><span class="num">01</span>What it does</h2>
+    <h2><span class="num">01</span>How it works</h2>
     <p>
       Jellyfin serves my personal media library to phones, tablets, TVs and browsers, transcoding on the fly using the
       server's NVIDIA GPU so it plays smoothly on any device and connection. Jellyseerr sits in front as a clean
@@ -44,7 +44,7 @@
       Cloudflare Tunnel and WireGuard setup, so there are no open inbound ports.
     </p>
 
-    <h2><span class="num">02</span>Components &amp; programs involved</h2>
+    <h2><span class="num">02</span>The stack</h2>
     <div class="stack-wrap">
     <table class="stack">
       <thead><tr><th>Component</th><th>Image</th><th>Role</th></tr></thead>
@@ -55,12 +55,12 @@
     </table>
     </div>
 
-    <h2><span class="num">03</span>Why I built it &amp; skills shown</h2>
+    <h2><span class="num">03</span>What this demonstrates</h2>
     <ul>
-      <li><strong>Self-hosting</strong> — replacing a paid streaming service with a maintained platform on my own hardware.</li>
-      <li><strong>Hardware transcoding</strong> — GPU passthrough into a container for smooth multi-device playback.</li>
-      <li><strong>Secure remote access</strong> — reachable away from home via tunnel + VPN, with no open inbound ports.</li>
-      <li><strong>Service orchestration</strong> — interdependent containers deployed and kept healthy with Docker Compose.</li>
+      <li>Self-hosting: replacing a paid streaming service with a maintained platform on my own hardware.</li>
+      <li>Hardware transcoding: GPU passthrough into a container for smooth multi-device playback.</li>
+      <li>Secure remote access: reachable away from home via tunnel + VPN, with no open inbound ports.</li>
+      <li>Service orchestration: interdependent containers deployed and kept healthy with Docker Compose.</li>
     </ul>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#projects">back to projects</a></p>
