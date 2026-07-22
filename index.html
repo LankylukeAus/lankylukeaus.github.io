@@ -52,14 +52,14 @@
         <div class="pcard htb">
           <div class="phead"><span class="pname">▚ HACK THE BOX</span><span class="country">#AU</span></div>
           <div class="handle2">Lanky</div>
-          <div class="sub"><b>◆ Professional</b> · Level 56 · Season 11 Silver</div>
+          <div class="sub" data-stat="htb.subline"><b>◆ Professional</b> · Level 56 · Season 11 Silver</div>
           <div class="pstats">
-            <div class="pstat"><div class="n green">Pro</div><div class="l">Rank</div></div>
-            <div class="pstat"><div class="n">56</div><div class="l">Level</div></div>
-            <div class="pstat"><div class="n">8</div><div class="l">Machines</div></div>
-            <div class="pstat"><div class="n green">#6313</div><div class="l">Global</div></div>
-            <div class="pstat"><div class="n">130</div><div class="l">S11 Pts</div></div>
-            <div class="pstat"><div class="n">4/26</div><div class="l">S11 Flags</div></div>
+            <div class="pstat"><div class="n green" data-stat="htb.subscription">Pro</div><div class="l">Rank</div></div>
+            <div class="pstat"><div class="n" data-stat="htb.level">56</div><div class="l">Level</div></div>
+            <div class="pstat"><div class="n" data-stat="htb.machines">8</div><div class="l">Machines</div></div>
+            <div class="pstat"><div class="n green" data-stat="htb.global">#6313</div><div class="l">Global</div></div>
+            <div class="pstat"><div class="n" data-stat="htb.points">130</div><div class="l">S11 Pts</div></div>
+            <div class="pstat"><div class="n" data-stat="htb.flags">4/26</div><div class="l">S11 Flags</div></div>
           </div>
           <a class="btn" href="https://app.hackthebox.com/users/677735" target="_blank" rel="noopener">View live HTB profile ↗</a>
         </div>
@@ -731,6 +731,32 @@
         var t = Date.parse(el.getAttribute('data-added'));
         if (!isNaN(t) && (now - t) > maxAge) el.style.display = 'none';
       });
+    })();
+
+    /* Live stats: assets/stats.json is refreshed by a scheduled GitHub Action
+       (the HTB token stays in encrypted repo secrets, never in this page).
+       Read on every page load; the values in the HTML above are the fallback,
+       so the page is still correct if this fetch fails. */
+    (function () {
+      fetch('assets/stats.json', { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (data) {
+          document.querySelectorAll('[data-stat]').forEach(function (el) {
+            var val = el.getAttribute('data-stat')
+              .split('.')
+              .reduce(function (o, k) { return (o == null ? o : o[k]); }, data);
+            if (val === undefined || val === null || val === '') return;
+            if (el.getAttribute('data-stat') === 'htb.subline') el.innerHTML = val;
+            else el.textContent = val;
+          });
+          var s = document.querySelector('[data-stat-updated]');
+          if (s && data.updated) {
+            s.textContent = 'stats synced ' +
+              new Date(data.updated).toLocaleDateString('en-AU',
+                { day: '2-digit', month: 'short', year: 'numeric' });
+          }
+        })
+        .catch(function (e) { console.warn('stats.json not applied:', e.message); });
     })();
   </script>
 </body>

@@ -1,0 +1,16 @@
+{
+  "updated": "2026-07-22T21:30:00Z",
+  "_note": "Refreshed by .github/workflows/update-stats.yml. Hand-edited values here are kept if the API cannot supply them.",
+  "htb": {
+    "subscription": "Pro",
+    "level": 56,
+    "hacker_rank": "Script Kiddie",
+    "season_name": "Season 11",
+    "tier": "Silver",
+    "global": "#6313",
+    "machines": 8,
+    "points": 130,
+    "flags": "4/26",
+    "subline": "<b>◆ Professional</b> · Level 56 · Season 11 Silver"
+  }
+}

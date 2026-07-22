@@ -1,0 +1,45 @@
+name: Refresh HTB stats
+
+# Keeps assets/stats.json current. The page fetches that file on every load,
+# so visitors always see the latest synced numbers without the HTB token ever
+# being exposed in the published site.
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'      # every 6 hours (UTC)
+  workflow_dispatch:            # allow manual runs from the Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-stats
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Fetch HTB stats
+        env:
+          HTB_TOKEN: ${{ secrets.HTB_TOKEN }}
+          HTB_USER_ID: '677735'
+        run: node scripts/fetch-htb-stats.mjs
+
+      - name: Commit if changed
+        run: |
+          git config user.name  "Lanky"
+          git config user.email "lankylukeaus@users.noreply.github.com"
+          if git diff --quiet -- assets/stats.json; then
+            echo "No change in stats.json"
+          else
+            git add assets/stats.json
+            git commit -m "Auto-update HTB stats"
+            git push
+          fi
