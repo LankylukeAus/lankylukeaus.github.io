@@ -21,8 +21,9 @@ const OUT = 'assets/stats.json';
 const API = 'https://labs.hackthebox.com/api/v4';
 
 if (!TOKEN) {
-  console.error('HTB_TOKEN is not set. Add it as a repository secret.');
-  process.exit(1);
+  // Skip quietly rather than failing the scheduled run every few hours.
+  console.log('HTB_TOKEN is not set — skipping refresh (add it as a repo secret to enable).');
+  process.exit(0);
 }
 
 const headers = {
@@ -36,14 +37,21 @@ async function get(path) {
   try {
     const r = await fetch(url, { headers, redirect: 'manual' });
     const status = r.status;
+    diag.endpoints[path] = status;
     if (status !== 200) {
       console.log(`  [${status}] ${path}`);
       return null;
     }
     const body = await r.json();
-    console.log(`  [200] ${path}  keys=${Object.keys(body).join(',').slice(0, 90)}`);
+    const keys = Object.keys(body);
+    diag.discovered[path] = keys;
+    // one level deeper for wrapper objects, to reveal real field names
+    if (body.profile) diag.discovered[path + '.profile'] = Object.keys(body.profile);
+    if (body.data && !Array.isArray(body.data)) diag.discovered[path + '.data'] = Object.keys(body.data);
+    console.log(`  [200] ${path}  keys=${keys.join(',').slice(0, 90)}`);
     return body;
   } catch (e) {
+    diag.endpoints[path] = 'ERR:' + e.message;
     console.log(`  [ERR] ${path}  ${e.message}`);
     return null;
   }
@@ -53,6 +61,9 @@ const pick = (...vals) => vals.find((v) => v !== undefined && v !== null && v !=
 
 const prev = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : { htb: {} };
 const htb = { ...(prev.htb || {}) };
+// Diagnostics get written into the (public) stats.json so the field mapping can
+// be verified from the published file, without needing the private run logs.
+const diag = { endpoints: {}, discovered: {} };
 
 console.log(`Fetching HTB data for user ${USER_ID}...`);
 
@@ -90,7 +101,7 @@ if (htb.level && htb.tier && htb.season_name) {
   htb.subline = `<b>◆ Professional</b> · Level ${htb.level} · ${htb.season_name} ${htb.tier}`;
 }
 
-const out = { ...prev, updated: new Date().toISOString(), htb };
+const out = { ...prev, updated: new Date().toISOString(), htb, _diag: diag };
 writeFileSync(OUT, JSON.stringify(out, null, 2) + '\n');
 
 console.log('\nResult written to ' + OUT + ':');
