@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Checkpoint — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box: Checkpoint — Medium Windows. Active Directory chain: tombstone reanimation, VS Code extension supply-chain foothold, patched-BadSuccessor dMSA abuse, memory-image looting and local-to-domain admin password reuse.">
+  <link rel="stylesheet" href="../assets/style.css?v=2">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+</head>
+<body>
+  <div class="banner">
+    ◷ <strong>Active Season 11 box</strong> — full technical writeup publishes once the season closes. Summary and lessons below.
+  </div>
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#lab">back to writeups</a>
+    <img class="wu-logo" src="../assets/logos/checkpoint.png" alt="Checkpoint logo">
+    <h1 style="margin-top:16px;">Checkpoint</h1>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Checkpoint" target="_blank" rel="noopener">app.hackthebox.com/machines/Checkpoint</a></div>
+    <div class="machine-meta">
+      <span class="pill" style="color:var(--cyan);border-color:rgba(46,230,214,0.35)">Windows</span>
+      <span class="pill diff-medium">Medium</span>
+      <span class="pill season">Season 11</span>
+      <span class="pill">Active Directory</span>
+      <span class="pill flagp">User</span>
+      <span class="pill flagp">Root</span>
+      <span class="pill rooted">● Completed</span>
+      <span class="pill pending">writeup after season</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">Summary</span>
+      A modern <strong>Active Directory</strong> box on Windows Server 2025, played as an assumed breach from a single
+      low-privileged credential. Full domain compromise came from chaining five distinct weaknesses: over-broad AD
+      object permissions, a software supply-chain path through an auto-installing VS Code extension share, a
+      patched-but-still-abusable dMSA migration primitive, a VMware memory image sitting on a backup share, and local
+      Administrator password reuse across the estate.
+    </div>
+
+    <h2><span class="num">01</span>Why the full writeup is held back</h2>
+    <p>
+      Checkpoint is a live <strong>Season 11</strong> machine, so in line with Hack The Box's guidance on active
+      machines I am not publishing a step-by-step reproduction, commands, credentials or flags. The complete
+      walkthrough, covering the enumeration, the foothold chain, the privilege-escalation path and the client-style
+      remediation plan, goes live here once the season closes.
+    </p>
+
+    <h2><span class="num">02</span>The interesting bits (no spoilers)</h2>
+    <h3>Object rights as a chain, not a single bug</h3>
+    <p>
+      The foothold began with a permission most people would rate as low risk on its own: the ability to revive a
+      deleted account. Because a restored tombstone keeps its old secrets, and that account had write access somewhere
+      it should not have, a moderate right became the first link in a chain to code execution.
+    </p>
+    <h3>A software supply-chain path</h3>
+    <p>
+      Execution arrived through a <strong>developer workflow</strong> rather than a classic exploit: a share that
+      automatically installed VS Code extensions ran attacker-supplied code. It is a sharp reminder that any location
+      which auto-executes packages is production infrastructure and needs signing, scanning and approval.
+    </p>
+    <h3>A patched primitive that was not eliminated</h3>
+    <p>
+      The privilege escalation abused a <strong>delegated Managed Service Account (dMSA) migration</strong> path in
+      the "BadSuccessor" family (CVE-2025-53779 class). The domain controller was patched, but the technique still
+      worked because it was possible to control <em>both</em> sides of the successor relationship. A patch narrows a
+      technique; it does not always remove it.
+    </p>
+    <h3>Memory images are credential stores</h3>
+    <p>
+      A backup share held a <strong>VMware memory snapshot</strong>. Treating it as a forensic artefact and running
+      Volatility against it recovered a local Administrator hash. That hash was reused by the domain Administrator, so
+      an offline file turned into full domain compromise via Pass-the-Hash.
+    </p>
+    <h3>Operational realism</h3>
+    <p>
+      Two problems looked like exploit failures but were not: a VPN path-MTU black hole that stalled large transfers,
+      and Kerberos clock skew. Recognising infrastructure issues for what they are, rather than blaming the technique,
+      is half the battle on AD boxes.
+    </p>
+
+    <h2><span class="num">03</span>Takeaways</h2>
+    <ul>
+      <li><strong>Evaluate AD object rights as a chain.</strong> A moderate permission on one object can become critical when combined with creation or write rights elsewhere.</li>
+      <li><strong>A patch is not always the end of a technique.</strong> Patched BadSuccessor still worked given control of both ends of the migration link; detection matters alongside patching.</li>
+      <li><strong>Treat backups and memory snapshots as Tier 0.</strong> VMEM, VMSS and hibernation files can contain hashes, Kerberos material and live secrets.</li>
+      <li><strong>Kill password reuse.</strong> Local-to-domain Administrator reuse is what converted an offline hash into a domain takeover; LAPS and unique service credentials break the chain.</li>
+      <li>Straight into the day job: detection logic for dMSA and msDS-Superseded* changes, tombstone restores, unexpected extension installs, backup downloads and Pass-the-Hash, plus a Windows Server 2025 / DISA STIG hardening baseline.</li>
+    </ul>
+
+    <div class="callout todo">
+      <span class="tag">Coming after Season 11</span>
+      Full technical walkthrough with the enumeration, the tombstone-to-foothold chain, the dMSA BadSuccessor
+      escalation, the memory-image extraction, and a prioritised remediation and hardening plan.
+    </div>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
+  </article>
+
+  <footer><div class="wrap">Checkpoint · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+</body>
+</html>
