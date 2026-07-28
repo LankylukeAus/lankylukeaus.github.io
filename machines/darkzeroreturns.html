@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DarkZeroReturns — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box: DarkZeroReturns — Hard. Handlebars AST type-confusion RCE (CVE-2026-33940) on a Node.js app, pivot from a Linux foothold into a two-domain Active Directory environment, Kerberos-principal-to-root and a cross-domain pass-the-hash.">
+  <link rel="stylesheet" href="../assets/style.css?v=2">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+</head>
+<body>
+  <div class="banner">
+    ◷ <strong>Active Season 11 box</strong> — full technical writeup publishes once the season closes. Summary and lessons below.
+  </div>
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#lab">back to writeups</a>
+    <img class="wu-logo" src="../assets/logos/darkzeroreturns.png" alt="DarkZeroReturns logo">
+    <h1 style="margin-top:16px;">DarkZeroReturns</h1>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/DarkZeroReturns" target="_blank" rel="noopener">app.hackthebox.com/machines/DarkZeroReturns</a></div>
+    <div class="machine-meta">
+      <span class="pill os-linux">Linux</span>
+      <span class="pill diff-hard">Hard</span>
+      <span class="pill season">Season 11</span>
+      <span class="pill">Active Directory</span>
+      <span class="pill">Web / SSTI RCE</span>
+      <span class="pill flagp">User</span>
+      <span class="pill flagp">Root</span>
+      <span class="pill rooted">● Completed</span>
+      <span class="pill pending">writeup after season</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">Summary</span>
+      A hard box that starts as a Linux web target and turns into a full <strong>Active Directory</strong> engagement
+      across two separate domains. The foothold is a modern <strong>server-side template injection RCE</strong> in a
+      Node.js / Handlebars application. From the Linux entry host the path pivots into a Windows AD environment, reaches
+      Domain Admin, converts a Kerberos identity into local root, and finishes with a cross-domain pass-the-hash to the
+      final flag on a second domain controller.
+    </div>
+
+    <h2><span class="num">01</span>Why the full writeup is held back</h2>
+    <p>
+      DarkZeroReturns is a live <strong>Season 11</strong> machine, so in line with Hack The Box's guidance on active
+      machines I am not publishing a step-by-step reproduction, commands or payloads. (HTB flags are per-user and
+      dynamic, so there is nothing to redact there — the method is simply held back while the box is live.) The full
+      chain goes up here once the season closes.
+    </p>
+
+    <h2><span class="num">02</span>The interesting bits (no spoilers)</h2>
+    <h3>An SSTI that fought back</h3>
+    <p>
+      The injection point was obvious, but the exploit was not. The classic Handlebars prototype-walk gadgets were
+      dead: prototype-access control was enabled and the old CVE was patched. Getting there meant a long, documented
+      dead-end investigation before a <strong>newer bug</strong> emerged: an <strong>AST type-confusion in Handlebars
+      (CVE-2026-33940)</strong>, where handing the compiler an object shaped like an already-parsed template skips the
+      string parser and smuggles code into the generated function. The realistic lesson is that patched hardening does
+      not mean immune.
+    </p>
+    <h3>A Linux box that was really an AD box</h3>
+    <p>
+      The entry host was domain-joined through SSSD, so standard name-service lookups resolved <strong>real Active
+      Directory accounts with no credentials at all</strong>. A Linux server joined to a domain is part of the AD
+      attack surface, and enumerating it that way mapped out the internal network and the domain controller.
+    </p>
+    <h3>Two domains by design</h3>
+    <p>
+      The environment ran <strong>two separate domains and two domain controllers</strong>. A credential and a hash
+      that failed against the first only made sense once it was clear a second, differently-named domain existed behind
+      the first host's gateway. Reading the environment, rather than forcing a hash where it "should" work, was the
+      whole game.
+    </p>
+    <h3>Kerberos as a privilege boundary</h3>
+    <p>
+      The final local root did not need a Unix password. Domain-admin rights were used to create a
+      <strong>Kerberos principal that the host was pre-configured to trust as local root</strong>, then that ticket was
+      exchanged for a root shell. When a host trusts a realm, AD identity <em>is</em> local identity — a powerful
+      reminder for anyone hardening domain-joined Linux.
+    </p>
+
+    <h2><span class="num">03</span>Takeaways</h2>
+    <ul>
+      <li><strong>A patch narrows a technique, it doesn't always remove it.</strong> A hardened classic SSTI path still fell to a newer template-engine bug.</li>
+      <li><strong>Domain-joined Linux is AD attack surface.</strong> SSSD/NSS, Kerberos and keytabs all matter; unauthenticated account enumeration should be monitored.</li>
+      <li><strong>Segment trust between domains and hosts.</strong> Domain Admin on one domain should not chain to local root on a host and a flag on a different domain.</li>
+      <li><strong>Watch AD writes.</strong> Anomalous LDAP writes (new principals and OUs, password sets), Kerberos principal creation, and CI-runner abuse are all detectable, and are exactly what this chain relied on.</li>
+    </ul>
+
+    <div class="callout todo">
+      <span class="tag">Coming after Season 11</span>
+      Full technical walkthrough: the Handlebars SSTI investigation and AST type-confusion RCE, the Linux-to-AD pivot,
+      the two-domain enumeration, and the Kerberos-to-root and cross-domain steps, with a defensive remediation plan.
+    </div>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
+  </article>
+
+  <footer><div class="wrap">DarkZeroReturns · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+</body>
+</html>
