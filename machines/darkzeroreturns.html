@@ -93,6 +93,24 @@
       <li><strong>Watch AD writes.</strong> Anomalous LDAP writes (new principals and OUs, password sets), Kerberos principal creation, and CI-runner abuse are all detectable, and are exactly what this chain relied on.</li>
     </ul>
 
+    <h2><span class="num">04</span>If this were your environment</h2>
+    <p>
+      The part that matters for my day job: every link in this chain is a separate, fixable control failure. Treating it
+      like a real engagement, here is how I would remediate it.
+    </p>
+    <ul>
+      <li><strong>Fix the RCE at the root.</strong> Patch the template engine, and never compile user-controlled input as a template — render it as data. Enforce the field type at the boundary and run the render path sandboxed, with no access to process internals.</li>
+      <li><strong>Remove the Kerberos-to-root mapping.</strong> No arbitrary domain principal should map to local root. Restrict who can create accounts and write principal/password/UAC attributes in AD, and pin any Kerberos-to-local mapping to an explicit named list.</li>
+      <li><strong>Tier the identities.</strong> Eliminate password reuse across app, OS and domain, and keep Domain Admin accounts off low-tier, internet-facing hosts (Tier 0 model, Protected Users, authentication policy silos).</li>
+      <li><strong>Harden the domain-joined Linux host.</strong> Restrict the SSSD login policy to an explicit allow-list and disable unauthenticated directory enumeration, so a web host can't resolve the whole directory.</li>
+      <li><strong>Contain the pivot.</strong> Segment the two domains and deploy LAPS so a reused local Administrator password can't chain across hosts. Protect the CI pipeline so a workflow change can't run as a privileged service account.</li>
+      <li><strong>Detections:</strong> anomalous LDAP writes, Kerberos-to-root events, a Domain Admin authenticating from a low-tier host, and out-of-band commands injected into the CI runner.</li>
+    </ul>
+    <p>
+      Closure isn't the single Handlebars patch — it's re-running the whole chain and confirming it fails at several
+      independent points.
+    </p>
+
     <div class="callout todo">
       <span class="tag">Coming after Season 11</span>
       Full technical walkthrough: the Handlebars SSTI investigation and AST type-confusion RCE, the Linux-to-AD pivot,
