@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cohort — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box: Cohort — Easy Linux. SSRF through a string-match blocklist into an internal marimo notebook, a pre-auth WebSocket RCE reached via a wildcard-cert dynamic host, and root through a held, partially-upgraded PackageKit package.">
+  <link rel="stylesheet" href="../assets/style.css?v=2">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128225;</text></svg>">
+</head>
+<body>
+  <div class="banner">
+    ◷ <strong>Active Season 11 box</strong> — full technical writeup publishes once the season closes. Summary and lessons below.
+  </div>
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#lab">back to writeups</a>
+    <img class="wu-logo" src="../assets/logos/cohort.png" alt="Cohort logo">
+    <h1 style="margin-top:16px;">Cohort</h1>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Cohort" target="_blank" rel="noopener">app.hackthebox.com/machines/Cohort</a></div>
+    <div class="machine-meta">
+      <span class="pill os-linux">Linux</span>
+      <span class="pill diff-easy">Easy</span>
+      <span class="pill season">Season 11</span>
+      <span class="pill">SSRF</span>
+      <span class="pill">Pre-auth RCE</span>
+      <span class="pill flagp">User</span>
+      <span class="pill flagp">Root</span>
+      <span class="pill rooted">● Completed</span>
+      <span class="pill pending">writeup after season</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">Summary</span>
+      An Ubuntu 24.04 box that is really a lesson in trusting the wrong boundary. A public
+      "validate this data-feed URL" form enforced its safety with a <strong>string-match blocklist</strong>
+      that only knew one spelling of localhost, so it became a server-side request forgery primitive
+      pointed at loopback. Behind it sat an internal <strong>marimo</strong> notebook with a pre-auth
+      WebSocket bug (CVE-2026-39987). Reaching that bug took one more idea; root came from a
+      <strong>PackageKit</strong> package that had been held back at a vulnerable version while its own
+      libraries were patched around it (CVE-2026-41651).
+    </div>
+
+    <h2><span class="num">01</span>Why the full writeup is held back</h2>
+    <p>
+      Cohort is a live <strong>Season 11</strong> machine, so in line with Hack The Box's guidance on
+      active machines I am not publishing the step-by-step reproduction, the exact bypass payloads,
+      credentials or flags. The complete walkthrough, covering the enumeration, the SSRF-to-notebook
+      pivot, the transport trick that unlocked the RCE, the privilege-escalation path and a client-style
+      remediation plan, goes live here once the season closes.
+    </p>
+
+    <h2><span class="num">02</span>The interesting bits (no spoilers)</h2>
+    <h3>A blocklist is not an allow-list</h3>
+    <p>
+      The URL validator rejected exactly two strings and nothing else. Every other way of writing the
+      same loopback address walked straight through. That turned a "safety" feature into a
+      <strong>server-side request forgery</strong> tool for mapping and reaching services bound to
+      localhost that were never meant to face the internet.
+    </p>
+    <h3>The right vulnerability behind the wrong door</h3>
+    <p>
+      The SSRF found an internal notebook server carrying a genuine <strong>pre-auth remote code
+      execution</strong> bug (CVE-2026-39987): one WebSocket route that forgot to check authentication
+      and handed out an interactive shell. The catch was that the only way in — a blind, single-shot
+      HTTP GET — physically could not perform the WebSocket handshake the exploit needed.
+    </p>
+    <h3>The certificate was the hint</h3>
+    <p>
+      The box's wildcard TLS certificate was the tell. A per-notebook <strong>dynamic hostname</strong>
+      was proxied directly to the internal service, giving a clean, full-duplex path to the vulnerable
+      route without the SSRF's limitations. The lesson: a wildcard cert plus a permissive reverse-proxy
+      vhost can quietly re-expose everything you thought you had firewalled to loopback.
+    </p>
+    <h3>A patched host with one un-patched package</h3>
+    <p>
+      Privilege escalation was a study in discipline. The kernel was deliberately hardened, with sysctl
+      and modprobe files named after specific 2026 CVEs — and every one of them checked out as patched
+      or blocked. The real hole was a single <strong>held package</strong>: PackageKit pinned at a
+      vulnerable build while its own libraries had been upgraded past it. A deterministic
+      time-of-check/time-of-use flaw in its install handling (CVE-2026-41651) installed an
+      attacker-controlled payload as root, no prompt.
+    </p>
+
+    <h2><span class="num">03</span>Takeaways</h2>
+    <ul>
+      <li><strong>Validate egress with an allow-list, after DNS resolution.</strong> Blocklisting string forms of "localhost" is not SSRF defence; resolve the host, reject internal ranges, and re-check post-resolution to beat rebinding.</li>
+      <li><strong>Loopback is not a security boundary.</strong> A wildcard certificate and a catch-all proxy vhost re-exposed an internal service that binding to 127.0.0.1 was supposed to protect.</li>
+      <li><strong>Patch the version, not just the transport.</strong> The notebook RCE was fixed upstream; running an old build behind a proxy still shipped the bug.</li>
+      <li><strong>Never hold a package below its own libraries.</strong> The whole root path existed because one security-relevant package was pinned while everything around it was updated.</li>
+      <li>Straight into the day job: detection for SSRF to internal ranges, unauthenticated WebSocket shells, and partial-upgrade package states, plus an Ubuntu 24.04 STIG / CIS hardening baseline.</li>
+    </ul>
+
+    <div class="callout todo">
+      <span class="tag">Coming after Season 11</span>
+      Full technical walkthrough with the enumeration, the blocklist-bypass SSRF, the loopback port
+      map, the dynamic-host transport unlock into the pre-auth RCE, the PackageKit TOCTOU privilege
+      escalation, and a prioritised remediation and hardening plan mapped to NIST 800-53/171, the
+      DISA Ubuntu 24.04 STIG and the CIS Benchmark.
+    </div>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
+  </article>
+
+  <footer><div class="wrap">Cohort · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+</body>
+</html>
