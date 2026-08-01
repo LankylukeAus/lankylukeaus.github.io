@@ -455,3 +455,7 @@ a.sname:hover { text-decoration: underline; }
   font-family: var(--mono); font-size: 9px; color: #0b0d14; background: var(--green);
   border-radius: 3px; padding: 0 4px; margin-left: 6px; vertical-align: 1px; letter-spacing: .04em;
 }
+
+/* HTB Labs hexagon badge icons */
+.badge-chip .bicon { width: 34px; height: 36px; flex: 0 0 auto; display: inline-flex; align-items: center; }
+.badge-chip .bicon svg { width: 34px; height: 36px; display: block; }
