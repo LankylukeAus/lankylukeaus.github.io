@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Arachnoid badge">
+  <defs>
+    <radialGradient id="ag" cx="50%" cy="42%" r="65%">
+      <stop offset="0%" stop-color="#16210a"/>
+      <stop offset="100%" stop-color="#0a0d08"/>
+    </radialGradient>
+  </defs>
+  <circle cx="60" cy="60" r="58" fill="url(#ag)" stroke="#5f8a1c" stroke-width="2"/>
+  <!-- HUD ring segments -->
+  <g fill="none" stroke="#9fef00" stroke-width="3" stroke-linecap="round" opacity="0.85">
+    <path d="M60 8 A52 52 0 0 1 104 34"/>
+    <path d="M112 60 A52 52 0 0 1 96 96" stroke="#ff5c6c" opacity="0.7"/>
+    <path d="M60 112 A52 52 0 0 1 20 92"/>
+    <path d="M8 60 A52 52 0 0 1 22 28"/>
+  </g>
+  <circle cx="60" cy="60" r="40" fill="none" stroke="#2b3a17" stroke-width="1.5"/>
+  <!-- spider -->
+  <g stroke="#9fef00" stroke-width="2.4" stroke-linecap="round" fill="none">
+    <path d="M60 58 C44 46 40 40 33 34"/><path d="M60 58 C44 54 38 54 30 52"/>
+    <path d="M60 58 C46 64 40 68 34 74"/><path d="M60 58 C48 72 46 80 42 88"/>
+    <path d="M60 58 C76 46 80 40 87 34"/><path d="M60 58 C76 54 82 54 90 52"/>
+    <path d="M60 58 C74 64 80 68 86 74"/><path d="M60 58 C72 72 74 80 78 88"/>
+  </g>
+  <ellipse cx="60" cy="52" rx="9" ry="8" fill="#0d0f0a" stroke="#9fef00" stroke-width="2.4"/>
+  <ellipse cx="60" cy="66" rx="12" ry="14" fill="#0d0f0a" stroke="#9fef00" stroke-width="2.4"/>
+  <circle cx="56.5" cy="51" r="1.7" fill="#9fef00"/><circle cx="63.5" cy="51" r="1.7" fill="#9fef00"/>
+</svg>
