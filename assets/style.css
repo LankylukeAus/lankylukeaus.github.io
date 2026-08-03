@@ -49,9 +49,12 @@ header.nav .wrap {
 .brand {
   font-family: var(--mono); font-weight: 700; font-size: 18px;
   color: var(--fg-bright); text-decoration: none; letter-spacing: 0.5px;
+  display: inline-flex; align-items: center; gap: 9px;
 }
 .brand .accent { color: var(--green); }
 .brand::before { content: "▚ "; color: var(--green); }
+.brand:has(.brand-logo)::before { content: none; }
+.brand-logo { height: 26px; width: 26px; border-radius: 50%; display: block; flex: none; }
 header.nav a.link { color: var(--fg-dim); text-decoration: none; font-family: var(--mono); font-size: 14px; }
 header.nav a.link:hover { color: var(--green); }
 
