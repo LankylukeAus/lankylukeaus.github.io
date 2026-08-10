@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DanglingTree — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box: DanglingTree — Medium Windows. A five-identity Active Directory chain ending in the box's signature flaw: a dangling ADCS certificate-template reference that turns a container write into ESC1 and full domain compromise.">
+  <link rel="stylesheet" href="../assets/style.css?v=4">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127795;</text></svg>">
+</head>
+<body>
+  <div class="banner">
+    ◷ <strong>Active Season 11 box</strong> — full technical writeup publishes once the season closes. Summary and lessons below.
+  </div>
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#lab">back to writeups</a>
+    <img class="wu-logo" src="../assets/logos/danglingtree.png" alt="DanglingTree logo">
+    <h1 style="margin-top:16px;">DanglingTree</h1>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/DanglingTree" target="_blank" rel="noopener">app.hackthebox.com/machines/DanglingTree</a></div>
+    <div class="machine-meta">
+      <span class="pill" style="color:var(--cyan);border-color:rgba(46,230,214,0.35)">Windows</span>
+      <span class="pill diff-medium">Medium</span>
+      <span class="pill season">Season 11</span>
+      <span class="pill">Active Directory</span>
+      <span class="pill">ADCS · ESC1</span>
+      <span class="pill flagp">User</span>
+      <span class="pill flagp">Root</span>
+      <span class="pill rooted">● Completed</span>
+      <span class="pill pending">writeup after season</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">Summary</span>
+      A single-VM Windows Server 2025 <strong>Active Directory Domain Controller</strong> that lives up to
+      its name in the final act. Full compromise meant chaining through <strong>five identities</strong>, each
+      unlocked by a different technique — remote code execution in Windows Admin Center, an unauthenticated
+      reset in an internal mail server, a mailbox domain-swap trick to recover a hidden AD password, and a
+      SAMR password reset — to reach a user who could abuse the box's signature flaw: a <strong>dangling
+      AD Certificate Services template reference</strong>. The CA advertised certificate templates that no
+      longer existed as AD objects, so creating an object with the right name turned an ordinary container
+      permission into an <strong>ESC1</strong> path to Domain Admin.
+    </div>
+
+    <h2><span class="num">01</span>Why the full writeup is held back</h2>
+    <p>
+      DanglingTree is a live <strong>Season 11</strong> machine, so in line with Hack The Box's guidance on
+      active machines I am not publishing the step-by-step reproduction, commands, credentials or flags. The
+      complete walkthrough — the full identity chain, the ADCS exploitation and a client-style remediation
+      plan — goes live here once the season closes.
+    </p>
+
+    <h2><span class="num">02</span>The interesting bits (no spoilers)</h2>
+    <h3>The name is the hint</h3>
+    <p>
+      A stale, unreachable DNS record for the bare domain name sits alongside the correct Domain Controller
+      record — quietly breaking any tool that resolves the domain instead of the host. That "dangling"
+      pattern turned out to be deliberate foreshadowing for the box's real vulnerability.
+    </p>
+    <h3>A certificate authority trusting ghosts</h3>
+    <p>
+      The heart of the box is an <strong>ADCS</strong> misconfiguration I hadn't hit in a lab before: the CA
+      published several certificate templates as "enabled" that <em>had no backing Active Directory object at
+      all</em>. Because the CA never re-validates that a published template still exists, anyone with write
+      access to the templates container can create an object under that exact name and instantly gain a live,
+      requestable — and in this case <strong>ESC1-vulnerable</strong> — template. A dangling reference became
+      a domain takeover.
+    </p>
+    <h3>Five identities, five different techniques</h3>
+    <p>
+      Getting to the account with that write access was the real work: a browser-driven RCE in a management
+      console, an <strong>unauthenticated password-reset</strong> flaw in an internal mail platform, a
+      creative mailbox domain-swap to read a password that wasn't meant to be reachable, an Active Directory
+      ACL edge, and a protocol switch to land a password reset the "normal" way refused to allow.
+    </p>
+    <h3>Picking the right protocol matters</h3>
+    <p>
+      Two steps only worked once I stopped fighting the obvious transport: LDAP password changes failed
+      consistently, but the <strong>SAMR</strong> protocol reset the account cleanly; and WinRM was filtered
+      from outside, so the final Domain-Admin shell came over RPC/SMB rather than the tool everyone reaches
+      for first.
+    </p>
+
+    <h2><span class="num">03</span>Takeaways</h2>
+    <ul>
+      <li><strong>Audit your CA for dangling templates.</strong> A certificate template published on the CA with no matching AD object is a latent domain-compromise primitive; reconcile the CA's published list against real objects and alert on the gap.</li>
+      <li><strong>Treat the certificate-templates container as Tier 0.</strong> <code>CreateChild</code> there is effectively "mint yourself a template" — it must never sit with a non-PKI-admin group.</li>
+      <li><strong>ESC1 is still the classic.</strong> Enrollee-supplied Subject Alternative Names plus enrol rights for everyone is all it takes to forge an Administrator certificate.</li>
+      <li><strong>Chains beat single bugs.</strong> No one flaw here was game-over on its own; five moderate issues across web, mail and AD composed into full compromise.</li>
+      <li>Straight into the day job: detection for new certificate-template objects, enrollee-supplied-SAN requests, SAMR password resets, management-console RCE and unauthenticated mail-admin calls, plus a Windows Server 2025 / DISA STIG and ADCS hardening baseline.</li>
+    </ul>
+
+    <div class="callout todo">
+      <span class="tag">Coming after Season 11</span>
+      Full technical walkthrough with the enumeration, the five-identity chain, the dangling-template ESC1
+      exploitation to Domain Admin, and a prioritised remediation and hardening plan mapped to NIST 800-53/171,
+      the DISA Windows Server 2025 / Active Directory STIG and the CIS Benchmark.
+    </div>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
+  </article>
+
+  <footer><div class="wrap">DanglingTree · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+</body>
+</html>
