@@ -1,12 +1,14 @@
-name: Refresh HTB stats
+name: Daily portfolio refresh
 
 # Keeps assets/stats.json current. The page fetches that file on every load,
 # so visitors always see the latest synced numbers without the HTB token ever
 # being exposed in the published site.
 
 on:
+  # GitHub cron uses UTC. Adelaide is UTC+9:30 or UTC+10:30, so both
+  # possible UTC times are scheduled and the first step keeps only 09:00 local.
   schedule:
-    - cron: '0 */6 * * *'      # every 6 hours (UTC)
+    - cron: '30 22,23 * * *'
   workflow_dispatch:            # allow manual runs from the Actions tab
 
 permissions:
@@ -20,19 +22,39 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
+      - name: Check Adelaide schedule
+        id: schedule
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          LOCAL_TIME=$(TZ=Australia/Adelaide date +%H:%M)
+          if [ "$LOCAL_TIME" = "09:00" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping duplicate UTC slot; Adelaide time is $LOCAL_TIME"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.schedule.outputs.run == 'true'
 
       - uses: actions/setup-node@v4
+        if: steps.schedule.outputs.run == 'true'
         with:
           node-version: '20'
 
       - name: Fetch HTB stats
+        if: steps.schedule.outputs.run == 'true'
         env:
           HTB_TOKEN: ${{ secrets.HTB_TOKEN }}
           HTB_USER_ID: '677735'
         run: node scripts/fetch-htb-stats.mjs
 
       - name: Commit if changed
+        if: steps.schedule.outputs.run == 'true'
         run: |
           git config user.name  "Lanky"
           git config user.email "lankylukeaus@users.noreply.github.com"
