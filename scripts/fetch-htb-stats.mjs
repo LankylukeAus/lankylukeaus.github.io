@@ -81,12 +81,13 @@ if (Object.keys(p).length) {
 
 // --- season -----------------------------------------------------------------
 const seasons = await get('/season/list');
+let rank = null;
 const active = Array.isArray(seasons?.data)
   ? seasons.data.find((s) => s.active || s.state === 'active') || seasons.data.at(-1)
   : null;
 if (active?.id) {
   htb.season_name = pick(active.name, htb.season_name);
-  const rank = await get(`/season/user/rank/${active.id}`);
+  rank = await get(`/season/user/rank/${active.id}`);
   const d = rank?.data ?? {};
   htb.tier = pick(d.tier, d.league, htb.tier);
   htb.points = pick(d.total_season_points, d.points, htb.points);
@@ -94,6 +95,13 @@ if (active?.id) {
   if (d.flags_owned != null && d.total_flags != null) {
     htb.flags = `${d.flags_owned}/${d.total_flags}`;
   }
+}
+
+// Do not churn stats.json or pretend stale values were refreshed when HTB
+// rejects the personal token for the legacy profile endpoints.
+if (!basic && !rank) {
+  console.log('No authenticated profile statistics were returned; keeping stats.json unchanged.');
+  process.exit(0);
 }
 
 // --- derived display strings ------------------------------------------------
