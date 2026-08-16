@@ -53,15 +53,19 @@ jobs:
           HTB_USER_ID: '677735'
         run: node scripts/fetch-htb-stats.mjs
 
+      - name: Fetch public Credly badges
+        if: steps.schedule.outputs.run == 'true'
+        run: node scripts/fetch-credly.mjs
+
       - name: Commit if changed
         if: steps.schedule.outputs.run == 'true'
         run: |
           git config user.name  "Lanky"
           git config user.email "lankylukeaus@users.noreply.github.com"
-          if git diff --quiet -- assets/stats.json; then
-            echo "No change in stats.json"
+          if git diff --quiet -- assets/stats.json assets/credly.json; then
+            echo "No portfolio data changed"
           else
-            git add assets/stats.json
-            git commit -m "Auto-update HTB stats"
+            git add assets/stats.json assets/credly.json
+            git commit -m "Auto-update portfolio data"
             git push
           fi
