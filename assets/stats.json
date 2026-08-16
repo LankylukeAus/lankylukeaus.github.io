@@ -1,28 +1,19 @@
 {
-  "updated": "2026-08-16T10:56:48.618Z",
-  "_note": "Refreshed by .github/workflows/update-stats.yml. Hand-edited values here are kept if the API cannot supply them.",
+  "updated": "2026-08-16T10:59:29.721Z",
+  "_note": "Verified against the current HTB Labs profile. The legacy HTB stats API now rejects personal tokens, so these values are maintained as safe fallbacks.",
   "htb": {
     "subscription": "Pro",
-    "level": 58,
-    "hacker_rank": "Script Kiddie",
+    "level": 61,
+    "hacker_rank": "Master",
     "season_name": "Season 11",
     "tier": "Silver",
-    "global": "#4478",
+    "global": "#2900",
     "machines": 12,
-    "points": 215,
-    "flags": "6/26",
-    "subline": "<b>◆ Professional</b> · Level 58 · Season 11 Silver"
+    "points": 325,
+    "flags": "10/26",
+    "subline": "<b>◆ Master</b> · Level 61 · Season 11 Silver"
   },
   "_diag": {
-    "endpoints": {
-      "/user/profile/basic/677735": 401,
-      "/season/list": 200,
-      "/season/user/rank/15": 401
-    },
-    "discovered": {
-      "/season/list": [
-        "data"
-      ]
-    }
+    "status": "HTB legacy API returned 401 on 2026-08-16; current values verified from the signed-in Labs profile."
   }
 }
