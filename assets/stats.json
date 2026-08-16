@@ -1,5 +1,5 @@
 {
-  "updated": "2026-07-22T21:30:00Z",
+  "updated": "2026-08-16T10:56:48.618Z",
   "_note": "Refreshed by .github/workflows/update-stats.yml. Hand-edited values here are kept if the API cannot supply them.",
   "htb": {
     "subscription": "Pro",
@@ -12,5 +12,17 @@
     "points": 215,
     "flags": "6/26",
     "subline": "<b>◆ Professional</b> · Level 58 · Season 11 Silver"
+  },
+  "_diag": {
+    "endpoints": {
+      "/user/profile/basic/677735": 401,
+      "/season/list": 200,
+      "/season/user/rank/15": 401
+    },
+    "discovered": {
+      "/season/list": [
+        "data"
+      ]
+    }
   }
 }
