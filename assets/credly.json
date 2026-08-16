@@ -1,0 +1,34 @@
+{
+  "profile": "https://www.credly.com/users/luke-gerritsen",
+  "updated": "2026-08-16T00:00:00.000Z",
+  "count": 3,
+  "badges": [
+    {
+      "id": "8756f6fa-1281-4482-b2a6-1fc666916c65",
+      "name": "Hack The Box Certified Defensive Security Analyst (HTB CDSA)",
+      "issuer": "Hack The Box",
+      "issued": "2026-04-13",
+      "expires": null,
+      "image": "https://images.credly.com/images/e78adea1-f60b-4991-b5d5-3427140c7c1d/image.png",
+      "url": "https://www.credly.com/badges/8756f6fa-1281-4482-b2a6-1fc666916c65"
+    },
+    {
+      "id": "0e4da3b9-d923-4f50-a62e-b0ec10d4fb01",
+      "name": "Microsoft MS-700T00 - Managing Microsoft Teams Course Completion Badge",
+      "issuer": "Lumify Group",
+      "issued": "2023-04-20",
+      "expires": null,
+      "image": "https://images.credly.com/images/8465fb4e-e29d-4e92-a262-99c49e62a38c/image.png",
+      "url": "https://www.credly.com/badges/0e4da3b9-d923-4f50-a62e-b0ec10d4fb01"
+    },
+    {
+      "id": "759822b5-4a47-4810-b1ed-9b5fa0d02a3e",
+      "name": "Microsoft MS-203T00 - Microsoft 365 Messaging Course Completion Badge",
+      "issuer": "Lumify Group",
+      "issued": "2023-03-31",
+      "expires": null,
+      "image": "https://images.credly.com/images/34b662a5-905b-4cce-b87b-dd3cba9e7ef9/image.png",
+      "url": "https://www.credly.com/badges/759822b5-4a47-4810-b1ed-9b5fa0d02a3e"
+    }
+  ]
+}
