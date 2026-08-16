@@ -798,6 +798,63 @@
       show((location.hash || '#profile').slice(1));
     })();
 
+
+    /* Make whole portfolio cards keyboard- and pointer-accessible whenever
+       they already have a meaningful verification, source or detail URL. */
+    (function () {
+      function linkCard(card, url, newTab) {
+        if (!card || !url || card.tagName === 'A') return;
+        card.classList.add('linked-card');
+        card.setAttribute('role', 'link');
+        card.setAttribute('tabindex', '0');
+        card.setAttribute('aria-label', (card.textContent || 'Open item').trim().replace(/\s+/g, ' ') + ' — open link');
+        function openLink() {
+          if (newTab) window.open(url, '_blank', 'noopener');
+          else window.location.href = url;
+        }
+        card.addEventListener('click', function (event) {
+          if (event.target.closest('a, button')) return;
+          openLink();
+        });
+        card.addEventListener('keydown', function (event) {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openLink();
+          }
+        });
+      }
+
+      var htbBadges = 'https://profile.hackthebox.com/profile/019c9687-3c9b-737c-8f02-df0ea880994c?tab=badges';
+      document.querySelectorAll('#badges .bcard:not(a)').forEach(function (card) {
+        linkCard(card, htbBadges, true);
+      });
+
+      document.querySelectorAll('#certs .cert').forEach(function (card) {
+        var link = card.querySelector('a.verify');
+        if (link) linkCard(card, link.href, true);
+      });
+
+      var credlyTraining = {
+        'MS-700': 'https://www.credly.com/badges/0e4da3b9-d923-4f50-a62e-b0ec10d4fb01',
+        'MS-203': 'https://www.credly.com/badges/759822b5-4a47-4810-b1ed-9b5fa0d02a3e'
+      };
+      document.querySelectorAll('#certs .badge-chip').forEach(function (card) {
+        var text = card.textContent || '';
+        Object.keys(credlyTraining).some(function (key) {
+          if (text.indexOf(key) === -1) return false;
+          linkCard(card, credlyTraining[key], true);
+          return true;
+        });
+      });
+
+      document.querySelectorAll('#projects .proj, #scripts .srow, .platforms .pcard').forEach(function (card) {
+        var link = card.querySelector('a[href]');
+        if (!link) return;
+        var external = /^https?:/i.test(link.getAttribute('href'));
+        linkCard(card, link.href, external);
+      });
+    })();
+
     // NEW / "just completed" tags auto-expire 14 days after their data-added date
     (function () {
       var now = Date.now(), maxAge = 14 * 24 * 60 * 60 * 1000;
