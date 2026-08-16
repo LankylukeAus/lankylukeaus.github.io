@@ -103,9 +103,21 @@
     <!-- ══ BADGES ═══════════════════════════════════════════════ -->
     <section id="badges" class="tab-panel">
       <h2 class="panel-head">Badges</h2>
-      <p class="panel-sub">53 earned across HTB Academy, TryHackMe and HTB Labs.</p>
+      <p class="panel-sub">Verified achievements across Credly, HTB Academy, TryHackMe and HTB Labs.</p>
       <div class="contact" style="margin:-14px 0 26px;">
         <a class="btn" href="https://profile.hackthebox.com/profile/019c9687-3c9b-737c-8f02-df0ea880994c?tab=badges" target="_blank" rel="noopener">Verify badges on Hack The Box ↗</a>
+      </div>
+
+      <!-- CREDLY (daily public-profile sync) -->
+      <div class="badge-group-h">✓ Credly verified <span class="cnt" id="credly-count">· syncing public badges</span></div>
+      <p class="panel-sub" id="credly-status" style="margin-bottom:18px;">Public credentials issued and independently verifiable through Credly.</p>
+      <div class="bgrid" id="credly-badges">
+        <a class="bcard feat" href="https://www.credly.com/users/luke-gerritsen" target="_blank" rel="noopener">
+          <div class="bn">View Credly profile</div><div class="bm">Loading verified badges…</div>
+        </a>
+      </div>
+      <div class="contact" style="margin:18px 0 30px;">
+        <a class="btn" href="https://www.credly.com/users/luke-gerritsen" target="_blank" rel="noopener">Verify on Credly ↗</a>
       </div>
 
       <!-- HTB ACADEMY -->
@@ -793,6 +805,59 @@
         var t = Date.parse(el.getAttribute('data-added'));
         if (!isNaN(t) && (now - t) > maxAge) el.style.display = 'none';
       });
+    })();
+
+
+    /* Credly badges: assets/credly.json is refreshed from the public profile
+       by the same 09:00 Adelaide GitHub Action. */
+    (function () {
+      fetch('assets/credly.json', { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (data) {
+          if (!Array.isArray(data.badges) || !data.badges.length) return;
+          var grid = document.getElementById('credly-badges');
+          var count = document.getElementById('credly-count');
+          var status = document.getElementById('credly-status');
+          if (!grid) return;
+          grid.textContent = '';
+          data.badges.forEach(function (badge) {
+            var card = document.createElement('a');
+            card.className = 'bcard feat';
+            card.href = badge.url;
+            card.target = '_blank';
+            card.rel = 'noopener';
+
+            var img = document.createElement('img');
+            img.src = badge.image;
+            img.alt = badge.name + ' badge';
+            img.loading = 'lazy';
+
+            var name = document.createElement('div');
+            name.className = 'bn';
+            name.textContent = badge.name;
+
+            var meta = document.createElement('div');
+            meta.className = 'bm';
+            var issued = badge.issued
+              ? new Date(badge.issued + 'T00:00:00').toLocaleDateString('en-AU',
+                  { day: '2-digit', month: 'short', year: 'numeric' })
+              : '';
+            meta.textContent = badge.issuer + (issued ? ' · Issued ' + issued : '');
+
+            card.appendChild(img);
+            card.appendChild(name);
+            card.appendChild(meta);
+            grid.appendChild(card);
+          });
+          if (count) count.textContent = '· ' + data.badges.length + ' public badge' +
+            (data.badges.length === 1 ? '' : 's');
+          if (status && data.updated) {
+            status.textContent = 'Public credentials issued and independently verifiable through Credly · synced ' +
+              new Date(data.updated).toLocaleDateString('en-AU',
+                { day: '2-digit', month: 'short', year: 'numeric' });
+          }
+        })
+        .catch(function (e) { console.warn('Credly badges not applied:', e.message); });
     })();
 
     /* Live stats: assets/stats.json is refreshed by a scheduled GitHub Action
