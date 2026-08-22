@@ -38,11 +38,11 @@ export HOME=/home/lanky
 LOG="$HOME/docker/tonight-updates-$(date +%Y%m%d-%H%M%S).log"
 {
   echo "=== Scheduled update started: $(date -Is) ==="
-  /home/lanky/docker/update-os.sh
+  /home/lanky/scripts/update-os.sh
   if [ "$(id -un)" = "lanky" ]; then
-    /home/lanky/docker/update-all.sh
+    /home/lanky/scripts/update-all.sh
   else
-    sudo -u lanky HOME=/home/lanky /home/lanky/docker/update-all.sh
+    sudo -u lanky HOME=/home/lanky /home/lanky/scripts/update-all.sh
   fi
   echo "=== Scheduled update finished: $(date -Is) ==="
 } &gt;&gt; "$LOG" 2&gt;&amp;1

@@ -657,10 +657,23 @@
     <section id="scripts" class="tab-panel">
       <h2 class="panel-head">Automation &amp; Scripts</h2>
       <p class="panel-sub">
-        41 scripts that run my home lab, covering security scanning, self-healing, an autonomous agent framework
-        and general operations. Click any script name to read the full source. These are the real running scripts,
+        43 scripts that run my home lab, covering security scanning, self-healing, an autonomous agent framework
+        and general operations. Click a linked script name to read its sanitised source. These are the real running scripts,
         with secrets such as tokens, IDs and phone numbers replaced by placeholders.
       </p>
+
+      <div class="sgroup" style="margin-bottom:22px;">
+        <h3>When to use the scripts</h3>
+        <p class="sgsub">The live server catalogue is authoritative. Agents use the approved runner and ticket workflow; a filename is never permission to execute it.</p>
+        <div class="slist">
+          <div class="srow"><div><strong>Every morning</strong></div><div class="sdesc">Review the latest system, admin, NAS and Docker status reports. Run a fresh approved health check when the report is stale, missing, or Luke asks for one.</div></div>
+          <div class="srow"><div><strong>When an issue is noticed</strong></div><div class="sdesc">Start with the narrowest read-only health/status script for the affected service. Capture evidence under one ticket before considering a restart or repair.</div></div>
+          <div class="srow"><div><strong>Continuously (managed services only)</strong></div><div class="sdesc">Alert monitors, Telegram routing, DDNS and ARR synchronisation run through their existing services/timers. Agents inspect their status and logs; they do not launch duplicate daemons or pollers.</div></div>
+          <div class="srow"><div><strong>Saturday night maintenance window</strong></div><div class="sdesc">With Luke's approval: take the Docker configuration backup, run <code>run-tonight-updates.sh</code> to sequence OS and container updates, then perform a fresh health check and review failures or reboot requirements.</div></div>
+          <div class="srow"><div><strong>Weekly / monthly review</strong></div><div class="sdesc">Review hardening, suspicious-login, storage-capacity, duplicate and media-quality reports. Broad AV/CVE scans should run in an approved low-impact window; cleanup remains a separate owner-approved action.</div></div>
+          <div class="srow"><div><strong>Incident or change only</strong></div><div class="sdesc">Watchdogs, mount repair, device repair, notifications, OAuth setup, recycling, cleanup and update scripts are approval-gated. Internal router, handoff, sandbox and manager scripts are called only by their managed workflow.</div></div>
+        </div>
+      </div>
 
       <div class="sgroups">
 
@@ -723,10 +736,12 @@
         </div>
 
         <div class="sgroup">
-          <h3>Media library <span class="scount">1</span></h3>
+          <h3>Media library <span class="scount">3</span></h3>
           <p class="sgsub">Quality checks for the Jellyfin library.</p>
           <div class="slist">
             <div class="srow"><div><a class="sname" href="scripts/media-english-check.html">media-english-check.sh</a><span class="slang">bash</span></div><div class="sdesc">Flags media with missing or non-English audio/subtitle tracks.</div></div>
+            <div class="srow"><div><span class="sname">arr-rss-sync.py</span><span class="slang">python</span></div><div class="sdesc">Managed ARR synchronisation job. Use through its scheduled service; inspect logs rather than launching a second run from chat.</div></div>
+            <div class="srow"><div><span class="sname">arr-rejected-download-cleanup.py</span><span class="slang">python</span></div><div class="sdesc">Cleans rejected download records. Run only after Media Manager review and Luke's approval because it changes records.</div></div>
           </div>
         </div>
 
@@ -735,9 +750,9 @@
           <p class="sgsub">Reproducibility and staying patched.</p>
           <div class="slist">
             <div class="srow"><div><a class="sname" href="scripts/docker-backup.html">docker-backup.sh</a><span class="slang">bash</span></div><div class="sdesc">Archives every stack's compose + <code>.env</code> files to the NAS with retention: the "rebuild from scratch" safety net.</div></div>
-            <div class="srow"><div><a class="sname" href="scripts/update-all.html">update-all.sh</a><span class="slang">bash</span></div><div class="sdesc">Pulls and recreates all Docker stacks to their latest images.</div></div>
-            <div class="srow"><div><a class="sname" href="scripts/update-os.html">update-os.sh</a><span class="slang">bash</span></div><div class="sdesc">Applies OS package updates on the host.</div></div>
-            <div class="srow"><div><a class="sname" href="scripts/run-tonight-updates.html">run-tonight-updates.sh</a><span class="slang">bash</span></div><div class="sdesc">Scheduled overnight runner that sequences the OS and image updates in a safe window.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/update-all.html">update-all.sh</a><span class="slang">bash</span></div><div class="sdesc">Pulls and recreates Docker stacks. Use only in the approved Saturday-night window or an approved urgent patch.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/update-os.html">update-os.sh</a><span class="slang">bash</span></div><div class="sdesc">Applies host OS updates. Use only in the approved Saturday-night window or for an approved urgent security patch.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/run-tonight-updates.html">run-tonight-updates.sh</a><span class="slang">bash</span></div><div class="sdesc">Owner-approved Saturday-night runner that sequences OS and image updates; verify health and reboot requirements afterwards.</div></div>
           </div>
         </div>
 
@@ -757,7 +772,7 @@
           <div class="slist">
             <div class="srow"><div><a class="sname" href="scripts/update_mounts.html">update_mounts.sh</a><span class="slang">bash</span></div><div class="sdesc">Ensures the media containers mount the shared storage path correctly after config changes.</div></div>
             <div class="srow"><div><a class="sname" href="scripts/fix_govee_lights.html">fix_govee_lights.sh</a><span class="slang">bash</span></div><div class="sdesc">Recovers Govee lighting by running a repair routine inside the Home Assistant container.</div></div>
-            <div class="srow"><div><a class="sname" href="scripts/makecert.html">makecert.sh</a><span class="slang">bash</span></div><div class="sdesc">Generates local TLS certificates for internal services.</div></div>
+            <div class="srow"><div><span class="sname">cloudflare-ddns.py</span><span class="slang">python</span></div><div class="sdesc">Managed DDNS updater. Use through its scheduled service when the public address changes; agents inspect status and logs rather than running it manually.</div></div>
           </div>
         </div>
 
