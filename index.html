@@ -664,7 +664,7 @@
 
       <div class="sgroup" style="margin-bottom:22px;">
         <h3>When to use the scripts</h3>
-        <p class="sgsub">The live server catalogue is authoritative. Agents use the approved runner and ticket workflow; a filename is never permission to execute it.</p>
+        <p class="sgsub"><strong>Purpose:</strong> this section is the quick-training reference for people and AI agents: what each script is for, the best time to use it, who must approve it, and what verification follows. The live server catalogue is execution authority; a filename is never permission to run it.</p>
         <div class="slist">
           <div class="srow"><div><strong>Every morning</strong></div><div class="sdesc">Review the latest system, admin, NAS and Docker status reports. Run a fresh approved health check when the report is stale, missing, or Luke asks for one.</div></div>
           <div class="srow"><div><strong>When an issue is noticed</strong></div><div class="sdesc">Start with the narrowest read-only health/status script for the affected service. Capture evidence under one ticket before considering a restart or repair.</div></div>
@@ -702,7 +702,7 @@
             <div class="srow"><div><a class="sname" href="scripts/agent-ticket-router.html">agent-ticket-router.py</a><span class="slang">python</span></div><div class="sdesc">Routes incoming tickets/requests to the agent that owns that domain.</div></div>
             <div class="srow"><div><a class="sname" href="scripts/agent-handoff.html">agent-handoff.py</a><span class="slang">python</span></div><div class="sdesc">Structured handoff of work and context between agents.</div></div>
             <div class="srow"><div><a class="sname" href="scripts/l3-escalation.html">l3-escalation.py</a><span class="slang">python</span></div><div class="sdesc">Encodes the issues only a human (L3) can decide, including the affected system, the reasoning and the proposed change.</div></div>
-            <div class="srow"><div><a class="sname" href="scripts/docker-level2.html">docker-level2.py</a><span class="slang">python</span></div><div class="sdesc">The L2 Docker agent's logic: container triage and remediation decisions.</div></div>
+            <div class="srow"><div><a class="sname" href="scripts/docker-level2.html">docker-level2.py</a><span class="slang">python</span></div><div class="sdesc">The L2 Docker agent's logic. Use <code>status</code> only for a full inventory; use <code>problems</code> when asked which containers are stopped/unhealthy and why. Restart remains approval-gated.</div></div>
           </div>
         </div>
 
