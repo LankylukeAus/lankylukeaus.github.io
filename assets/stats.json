@@ -1,19 +1,19 @@
 {
-  "updated": "2026-08-16T10:59:29.721Z",
-  "_note": "Verified against the current HTB Labs profile. The legacy HTB stats API now rejects personal tokens, so these values are maintained as safe fallbacks.",
+  "updated": "2026-09-01T21:31:53.033Z",
+  "_note": "Verified fallback values updated after completing BlockSynergy. The legacy HTB stats API may reject personal tokens, so these values remain available when live refresh is unavailable.",
   "htb": {
     "subscription": "Pro",
-    "level": 61,
+    "level": 64,
     "hacker_rank": "Master",
     "season_name": "Season 11",
     "tier": "Silver",
     "global": "#2900",
-    "machines": 12,
+    "machines": 13,
     "points": 325,
     "flags": "10/26",
-    "subline": "<b>◆ Master</b> · Level 61 · Season 11 Silver"
+    "subline": "<b>◆ Master</b> · Level 64 · Season 11 Silver"
   },
   "_diag": {
-    "status": "HTB legacy API returned 401 on 2026-08-16; current values verified from the signed-in Labs profile."
+    "status": "Fallback updated 2026-09-02 after BlockSynergy completion; automated HTB refresh remains configured."
   }
 }
