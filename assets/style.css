@@ -488,3 +488,25 @@ a.sname:hover { text-decoration: underline; }
 .linked-card:hover .handle2 {
   color: var(--accent);
 }
+
+/* ── Writeup extras: fact tables, findings, control mappings ────────── */
+article table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+article th, article td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+article th { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--fg-dim); font-weight: 400; }
+article td code { font-size: 12.5px; }
+article .ok { color: var(--green); }
+article .no { color: var(--amber); }
+
+.fact { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; margin: 18px 0 26px; font-size: 14.5px; }
+.fact dt { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--fg-dim); padding-top: 2px; }
+.fact dd { margin: 0; color: var(--fg); }
+.fact b { color: var(--fg-bright); }
+
+.finding { border: 1px solid var(--border); border-left: 3px solid var(--red); background: var(--bg-soft); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 22px 0 0; }
+.finding h4 { margin: 4px 0 6px; font-size: 16px; color: var(--fg-bright); }
+.finding .tag { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--red); }
+.fix { border: 1px solid var(--border); border-left: 3px solid var(--green); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 0 0 22px; }
+.fix .tag { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--green); display: block; margin-bottom: 4px; }
+.ctrl { font-size: 13px; color: var(--fg-dim); border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px; line-height: 1.7; }
+.ctrl b { color: var(--fg); }
+.ctrl .stig b { color: var(--amber); }

