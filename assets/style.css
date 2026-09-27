@@ -311,6 +311,12 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
   letter-spacing: .5px; color: #0b0d14; background: var(--green); padding: 2px 6px; border-radius: 5px; }
 .cert .newtag { top: 14px; right: 14px; }
 .pill.newpill { color: #0b0d14; background: var(--green); border-color: var(--green); font-weight: 700; }
+.pill.rankp { color: var(--amber); border-color: rgba(245, 183, 71, 0.5); font-weight: 700; }
+
+.rank-proof { margin: 24px 0 30px; max-width: 700px; }
+.rank-proof img { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; }
+.rank-proof figcaption { display: flex; align-items: center; gap: 9px; margin-top: 10px; color: var(--fg-dim); font-family: var(--mono); font-size: 13px; }
+.rank-proof figcaption strong { color: var(--amber); }
 
 /* project status tags: Under construction (yellow) · Just gone Live / Live (green) · Retired (red) */
 .pill.st-build   { color: var(--amber); border-color: rgba(255,184,0,0.5); background: rgba(255,184,0,0.08); }

