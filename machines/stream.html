@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stream — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box Stream: heap dump credential exposure, ClickHouse pipeline analysis, XXE file disclosure, backup-log recovery, and a root-owned DLQ formatter trust boundary.">
+  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#9992;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#lab">back to writeups</a>
+    <h1 style="margin-top:16px;">Stream</h1>
+    <div class="subtitle">Hack The Box · Season 12 · completed 11 October 2026</div>
+    <div class="machine-meta">
+      <span class="pill newpill" data-added="2026-10-11">NEW</span>
+      <span class="pill os-linux">Linux</span>
+      <span class="pill diff-medium">Medium</span>
+      <span class="pill season">Season 12</span>
+      <span class="pill">Spring Boot</span>
+      <span class="pill">ClickHouse</span>
+      <span class="pill">XXE</span>
+      <span class="pill flagp">User</span>
+      <span class="pill flagp">Root</span>
+      <span class="pill rooted">● Completed</span>
+    </div>
+
+    <div class="callout warn">
+      <span class="tag">Responsible disclosure note</span>
+      This public portfolio summary documents the authorised Hack The Box lab path. Passwords and weaponised
+      payloads are intentionally omitted.
+    </div>
+
+    <div class="callout">
+      <span class="tag">TL;DR</span>
+      Exposed Spring Boot heap dump → service credentials → ClickHouse raw/XML and parsed/JSON pipeline analysis
+      → XXE file disclosure → SSH foothold → Kopia snapshot log recovery → privileged ClickHouse access →
+      root-owned DLQ formatter trust-boundary abuse → root.
+    </div>
+
+    <dl class="fact">
+      <dt>Initial access</dt><dd>Spring Boot actuator heap dump</dd>
+      <dt>Data platform</dt><dd>ClickHouse-backed AIDX ingestion pipeline</dd>
+      <dt>Foothold</dt><dd>XXE file disclosure and recovered SSH access</dd>
+      <dt>Privilege escalation</dt><dd>Database-controlled formatter executed by a root timer</dd>
+    </dl>
+
+    <h2><span class="num">01</span>Heap dump discovery</h2>
+    <p>
+      The API virtual host exposed a minimal Spring Boot actuator surface, including an unrestricted heap dump.
+      Parsing the HPROF revealed live Hikari connection material for the event-ingestion database.
+    </p>
+    <pre data-lang="bash"><code>curl -sS http://api.htb-airport.htb/actuator
+curl -sS http://api.htb-airport.htb/actuator/heapdump -o api-heapdump.hprof
+
+java -jar JDumpSpider.jar api-heapdump.hprof</code></pre>
+    <p>
+      This was a reminder that heap dumps are secrets-bearing artifacts: they can retain active connection objects,
+      usernames, passwords, tokens and application configuration.
+    </p>
+
+    <h2><span class="num">02</span>ClickHouse and the AIDX pipeline</h2>
+    <p>
+      The recovered service account authenticated to ClickHouse. Schema inspection showed a raw Kafka-backed XML
+      feed alongside a normalized JSON view:
+    </p>
+    <pre data-lang="text"><code>partner_feed.flightleg_raw
+partner_feed.flightleg_raw_kafka
+partner_feed.flightleg_raw_mv
+partner_feed.flightleg_json
+partner_feed.flightleg_json_kafka
+partner_feed.flightleg_json_mv</code></pre>
+    <p>
+      XML submitted to <code>/feeds/aidx</code> was persisted as raw data and also transformed into structured JSON.
+      The structured output became a useful observation point for testing parser behavior safely within the lab.
+    </p>
+
+    <h2><span class="num">03</span>XXE file disclosure</h2>
+    <p>
+      The XML parser resolved external entities. By placing an entity in a field retained by the downstream
+      normalizer, local-file content became visible in the JSON table. Reading <code>/etc/passwd</code> identified
+      the service and interactive user accounts, including <code>martin_cole</code>.
+    </p>
+    <p>
+      The key lesson was not only the XXE itself: an asynchronous pipeline can still be an exfiltration channel when
+      attacker-controlled parsed fields are subsequently stored and queryable.
+    </p>
+
+    <h2><span class="num">04</span>User foothold</h2>
+    <p>
+      The identified interactive account used a weak password. After validating the credential against the authorised
+      lab SSH service, I obtained a stable shell as <code>martin_cole</code>.
+    </p>
+    <div class="flag"><span class="label">user.txt</span>cf3dfb6909588e0785334ac14ba0ae52</div>
+
+    <h2><span class="num">05</span>Kopia backup recovery</h2>
+    <p>
+      Martin owned a configured Kopia repository containing a snapshot of ClickHouse logs. The repository could be
+      listed and restored through the existing local configuration:
+    </p>
+    <pre data-lang="bash"><code>kopia repository status
+kopia snapshot list --all
+kopia snapshot restore &lt;snapshot-id&gt; ~/restored-ch-logs</code></pre>
+    <p>
+      A historical ClickHouse error exposed administrative authentication material. The resulting account had broad
+      database privileges, including file and Kafka capabilities.
+    </p>
+
+    <h2><span class="num">06</span>Root through a DLQ formatter trust boundary</h2>
+    <p>
+      Systemd exposed a root-owned AIDX dead-letter-queue timer. Its worker consumed messages from Kafka and invoked
+      a Python formatter from ClickHouse's user-files directory. This created a dangerous boundary: a database
+      administrator could alter a file that the root service later executed.
+    </p>
+    <p>
+      Within the lab, I validated that the formatter was writable through the database's authorised file interface,
+      triggered the DLQ consumer, and waited for the timer. The root execution context then created a privileged
+      local shell.
+    </p>
+    <div class="callout todo">
+      <span class="tag">Design failure</span>
+      A root service must never execute content from a path writable by a lower-privileged database or application
+      account. The formatter should be root-owned, immutable to the database service, and validated before use.
+    </div>
+
+    <div class="flag"><span class="label">root.txt</span>815dcc47bdaef14495d7b4102dfc1706</div>
+
+    <h2><span class="num">07</span>Attack path</h2>
+    <pre data-lang="text"><code>exposed Spring Boot heap dump
+        ↓
+live database credentials
+        ↓
+AIDX raw XML / parsed JSON pipeline
+        ↓
+XXE → local account discovery
+        ↓
+SSH foothold
+        ↓
+Kopia snapshot → historic privileged database access
+        ↓
+database-controlled formatter executed by root timer
+        ↓
+root</code></pre>
+
+    <h2><span class="num">08</span>Takeaways</h2>
+    <ul>
+      <li>Restrict actuator endpoints and treat heap dumps as highly sensitive production data.</li>
+      <li>Disable external entity resolution in XML parsers unless it is explicitly required.</li>
+      <li>Apply least privilege to database service accounts and segregate writable data from executable code.</li>
+      <li>Protect backups and logs as carefully as application secrets; historic records can expose valid credentials.</li>
+      <li>Run scheduled tasks with the least privilege necessary and validate every file they execute.</li>
+    </ul>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
+  </article>
+
+  <footer>
+    <div class="wrap">Stream · completed · notes by Luke &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div>
+  </footer>
+</body>
+</html>
