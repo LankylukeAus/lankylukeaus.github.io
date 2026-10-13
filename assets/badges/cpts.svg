@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="HTB Certified Penetration Testing Specialist badge">
+  <rect width="120" height="120" rx="18" fill="#101722"/>
+  <circle cx="60" cy="60" r="49" fill="#111827" stroke="#9fef00" stroke-width="5"/>
+  <circle cx="60" cy="60" r="37" fill="#171c29" stroke="#667085" stroke-width="4"/>
+  <text x="60" y="25" text-anchor="middle" font-family="Arial, sans-serif" font-size="8" font-weight="700" fill="#b9c7d9" letter-spacing="1.2">HACKTHEBOX</text>
+  <text x="60" y="95" text-anchor="middle" font-family="Arial, sans-serif" font-size="7" font-weight="700" fill="#b9c7d9" letter-spacing="1">PENETRATION TESTING</text>
+  <g fill="#b9c7d9" font-family="Arial Black, Arial, sans-serif" font-size="15" font-weight="900">
+    <text x="35" y="55" transform="rotate(-35 35 55)">CPTS</text>
+    <text x="66" y="47" transform="rotate(35 66 47)">CPTS</text>
+    <text x="38" y="77" transform="rotate(35 38 77)">CPTS</text>
+    <text x="66" y="82" transform="rotate(-35 66 82)">CPTS</text>
+  </g>
+  <path d="M60 31 69 58 60 88 51 58Z" fill="#2b3140" stroke="#8a2be2" stroke-width="3"/>
+  <path d="M49 58h22" stroke="#d9e1ef" stroke-width="4" stroke-linecap="round"/>
+  <path d="M60 31v57" stroke="#8a2be2" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="60" cy="31" r="5" fill="#8a2be2"/>
+  <circle cx="29" cy="91" r="14" fill="#111827" stroke="#9fef00" stroke-width="4"/>
+  <path d="M22 88h14v10H22z" fill="#9fef00"/>
+  <path d="m30 88 2 3 4-6" fill="none" stroke="#111827" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
