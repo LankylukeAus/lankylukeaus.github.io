@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="All systems activated badge">
+  <rect width="120" height="120" rx="18" fill="#101722"/>
+  <circle cx="60" cy="60" r="48" fill="#27121f" stroke="#9fef00" stroke-width="5"/>
+  <circle cx="60" cy="60" r="34" fill="#ff8b1a" opacity=".9"/>
+  <path d="M38 67c8-26 36-26 44 0-5 13-13 22-22 22S43 80 38 67Z" fill="#151922" stroke="#101722" stroke-width="3"/>
+  <path d="M42 48h36l-8 17H50Z" fill="#f3f7ff"/>
+  <path d="M48 58h11l-5 7h-9Zm13 0h11l3 7h-9Z" fill="#ff3030"/>
+  <path d="M40 36h40M34 44h52M30 52h60" stroke="#9fef00" stroke-width="3" stroke-linecap="round" opacity=".8"/>
+  <circle cx="91" cy="91" r="13" fill="#111827" stroke="#9fef00" stroke-width="4"/>
+  <path d="M85 91h12M91 85v12" stroke="#9fef00" stroke-width="3" stroke-linecap="round"/>
+</svg>

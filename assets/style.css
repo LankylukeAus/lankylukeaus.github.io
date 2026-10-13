@@ -312,6 +312,7 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
 .cert .newtag { top: 14px; right: 14px; }
 .pill.newpill { color: #0b0d14; background: var(--green); border-color: var(--green); font-weight: 700; }
 .pill.rankp { color: var(--amber); border-color: rgba(245, 183, 71, 0.5); font-weight: 700; }
+.cstatus.planned { color: var(--amber); border-color: rgba(245, 183, 71, 0.5); }
 
 .rank-proof { margin: 24px 0 30px; max-width: 700px; }
 .rank-proof img { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; }
@@ -324,6 +325,7 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
 .pill.st-live    { color: var(--green); border-color: var(--green-dim); background: rgba(34,211,238,0.10); }
 .pill.st-retired { color: var(--red); border-color: rgba(255,62,62,0.5); background: rgba(255,62,62,0.08); }
 .bcard.feat img { width: 92px; height: 92px; }
+.badge-completions { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 .dot.def { background: #b388ff; } .rd.def { color: #b388ff; }
 
 /* Video walkthroughs */
@@ -339,6 +341,7 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
 /* Hacking Lab — per-lab action links */
 .lab-h { font-family: var(--mono); font-size: 14px; color: var(--fg-bright); letter-spacing: .5px; margin: 36px 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 .lab-sub { font-family: var(--mono); font-size: 12px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 1px; margin: 26px 0 12px; }
+.lab-season-h { font-family: var(--mono); font-size: 12px; color: var(--green); text-transform: uppercase; letter-spacing: 1px; margin: 22px 0 12px; }
 .acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 .act { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12.5px; text-decoration: none; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); color: var(--green); background: var(--bg-soft); transition: border-color .12s ease; }
 .act:hover { border-color: var(--green-dim); }
