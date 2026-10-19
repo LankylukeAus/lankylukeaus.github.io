@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CCTV — HTB Writeup (Lanky)</title>
   <meta name="description" content="Hack The Box: CCTV — Easy Linux. Default creds → creds in shell history → forged auth signature to a local service.">
-  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="stylesheet" href="../assets/style.css?v=6">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
 </head>
 <body>
@@ -73,6 +73,65 @@ cat ~/.zsh_history 2>/dev/null
       <li><strong>Least privilege on local services</strong>, and never trust a client-supplied signature without verifying it against a secret the client can't reach.</li>
       <li>The "boring" controls — unique creds, clean history, least privilege — are the ones that get skipped and then exploited first.</li>
     </ul>
+
+
+    <section class="hardening-guides" id="hardening-guides">
+      <h2><span class="num">◆</span>If this were my environment</h2>
+      <p>No advanced exploit was needed: default credentials, plaintext history and a weak signature boundary supplied the whole path. I would start with identity hygiene and make the privileged service independently verify every request.</p>
+      <div class="hardening-plan">
+        <span class="tag">Priority controls</span>
+        <ul>
+        <li>Force a unique password at first boot, disable vendor defaults, require MFA for administration and restrict the dashboard to a management network.</li>
+        <li>Keep secrets out of command lines and shell history; inject short-lived credentials from a secrets manager and rotate anything exposed.</li>
+        <li>Use a standard authenticated protocol with replay protection and server-side key custody instead of a client-provided or forgeable signature.</li>
+        <li>Run the local service without root where possible, expose only a narrow socket/API and record every privileged action.</li>
+        </ul>
+      </div>
+
+      <h3>Hardening guides and benchmarks</h3>
+      <p class="guide-intro">These references offer different implementation paths: consensus benchmarks, prescriptive government checklists, vendor baselines and application-security verification requirements. I would select the profile that matches the system's role, document exceptions, test it in staging and continuously measure drift.</p>
+      <div class="guide-grid">
+        <a class="guide-card" href="https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>Secrets Management Cheat Sheet</strong>
+          <span>Centralized storage, injection, scoping, auditing and rotation of credentials and keys.</span>
+        </a>
+        <a class="guide-card" href="https://owasp.org/projects/asvs" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>Application Security Verification Standard</strong>
+          <span>Testable requirements for authentication, access control, input handling, files and APIs.</span>
+        </a>
+        <a class="guide-card" href="https://csrc.nist.gov/pubs/sp/800/218/final" target="_blank" rel="noopener">
+          <span class="guide-source">NIST</span>
+          <strong>SP 800-218 Secure Software Development Framework</strong>
+          <span>Secure design, dependency governance, release integrity and vulnerability response practices.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/controls/v8" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Critical Security Controls v8</strong>
+          <span>A prioritized control program for inventory, access, vulnerability management, logging and recovery.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/cis-benchmarks" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Benchmarks</strong>
+          <span>Consensus configuration baselines for operating systems, servers, containers and applications.</span>
+        </a>
+        <a class="guide-card" href="https://public.cyber.mil/stigs/downloads/" target="_blank" rel="noopener">
+          <span class="guide-source">DISA</span>
+          <strong>STIG Document Library</strong>
+          <span>DoD hardening checklists for Windows, Linux, Active Directory, IIS, databases and application servers.</span>
+        </a>
+        <a class="guide-card" href="https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/security_hardening/index" target="_blank" rel="noopener">
+          <span class="guide-source">Red Hat</span>
+          <strong>RHEL 9 Security Hardening</strong>
+          <span>Host hardening, cryptographic policy, integrity, auditing, SELinux and compliance guidance.</span>
+        </a>
+      </div>
+      <div class="callout hardening-note">
+        <span class="tag">Operational note</span>
+        CIS and DISA profiles can affect compatibility. Apply them through version-controlled policy, start in audit mode where supported, test business workloads and record every exception with an owner and review date.
+      </div>
+    </section>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bedside — HTB Writeup (Lanky)</title>
   <meta name="description" content="Hack The Box: Bedside — Medium Linux. A hidden research vhost feeds uploads to a vulnerable pdfminer.six worker (pickle RCE), an internal ESM dev server leaks the developer SSH key by path traversal, and a sudo-approved trainer deserialises an attacker-supplied PyTorch checkpoint as root.">
-  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="stylesheet" href="../assets/style.css?v=6">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#129658;</text></svg>">
 </head>
 <body>
@@ -330,6 +330,65 @@ curl -f http://&lt;target&gt;:8888/checkpoint_z_exploit.pt \
       <li><strong>SUID depends on mount options.</strong> <code>nosuid</code> on <code>/tmp</code> silently defeats the classic payload — and <code>bash -p</code> is what preserves the effective UID.</li>
       <li><strong>Shared volumes bridge identities.</strong> A container user and a privileged host process met in <code>/datastore</code>, and that meeting was root.</li>
     </ul>
+
+
+    <section class="hardening-guides" id="hardening-guides">
+      <h2><span class="num">◆</span>If this were my environment</h2>
+      <p>The exploit depended on unsafe deserialization and a privileged process trusting a user-controlled machine-learning checkpoint. I would remove both code-execution primitives and then harden the container and host boundaries.</p>
+      <div class="hardening-plan">
+        <span class="tag">Priority controls</span>
+        <ul>
+        <li>Never deserialize untrusted pickle data; use a non-executable interchange format and validate the schema before processing uploads.</li>
+        <li>Keep model files outside privileged execution paths, verify signed hashes, and make root-run jobs consume only root-owned immutable inputs.</li>
+        <li>Run the application and conversion worker as separate unprivileged identities with read-only filesystems, dropped capabilities and tight seccomp/AppArmor or SELinux policy.</li>
+        <li>Continuously audit sudoers, scheduled jobs, container mounts and writable paths that feed privileged processes.</li>
+        </ul>
+      </div>
+
+      <h3>Hardening guides and benchmarks</h3>
+      <p class="guide-intro">These references offer different implementation paths: consensus benchmarks, prescriptive government checklists, vendor baselines and application-security verification requirements. I would select the profile that matches the system's role, document exceptions, test it in staging and continuously measure drift.</p>
+      <div class="guide-grid">
+        <a class="guide-card" href="https://owasp.org/projects/asvs" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>Application Security Verification Standard</strong>
+          <span>Testable requirements for authentication, access control, input handling, files and APIs.</span>
+        </a>
+        <a class="guide-card" href="https://csrc.nist.gov/pubs/sp/800/218/final" target="_blank" rel="noopener">
+          <span class="guide-source">NIST</span>
+          <strong>SP 800-218 Secure Software Development Framework</strong>
+          <span>Secure design, dependency governance, release integrity and vulnerability response practices.</span>
+        </a>
+        <a class="guide-card" href="https://docs.docker.com/engine/security/" target="_blank" rel="noopener">
+          <span class="guide-source">Docker</span>
+          <strong>Docker Engine security</strong>
+          <span>Namespaces, capabilities, daemon exposure, rootless operation and kernel hardening features.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/benchmark/docker" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Docker Benchmark</strong>
+          <span>Container host, daemon, image, runtime and operational configuration recommendations.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/cis-benchmarks" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Benchmarks</strong>
+          <span>Consensus configuration baselines for operating systems, servers, containers and applications.</span>
+        </a>
+        <a class="guide-card" href="https://public.cyber.mil/stigs/downloads/" target="_blank" rel="noopener">
+          <span class="guide-source">DISA</span>
+          <strong>STIG Document Library</strong>
+          <span>DoD hardening checklists for Windows, Linux, Active Directory, IIS, databases and application servers.</span>
+        </a>
+        <a class="guide-card" href="https://documentation.ubuntu.com/security/compliance/usg/" target="_blank" rel="noopener">
+          <span class="guide-source">Canonical</span>
+          <strong>Ubuntu Security Guide</strong>
+          <span>Automated auditing and tailoring for CIS and DISA STIG profiles on supported Ubuntu releases.</span>
+        </a>
+      </div>
+      <div class="callout hardening-note">
+        <span class="tag">Operational note</span>
+        CIS and DISA profiles can affect compatibility. Apply them through version-controlled policy, start in audit mode where supported, test business workloads and record every exception with an owner and review date.
+      </div>
+    </section>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>

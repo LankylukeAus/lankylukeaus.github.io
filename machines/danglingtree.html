@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DanglingTree — HTB Writeup (Lanky)</title>
   <meta name="description" content="Hack The Box: DanglingTree — Medium Windows AD. Five identities: Windows Admin Center RCE (CVE-2026-26119), an unauthenticated SmarterMail reset, a mailbox domain-swap, a SAMR password reset, and a dangling ADCS certificate template turned into ESC1 and Domain Admin.">
-  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="stylesheet" href="../assets/style.css?v=6">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127795;</text></svg>">
 </head>
 <body>
@@ -356,6 +356,70 @@ certipy-ad auth -pfx administrator.pfx -dc-ip &lt;dc-ip&gt;</code></pre>
       <li><strong>Know your protocols' quirks.</strong> LDAP password resets failed where SAMR worked, WinRM was filtered where WMI was not, and certipy needed an explicit SID. None of that is exploitation — it is just knowing the tools.</li>
       <li><strong>Documents are credentials.</strong> The whole chain starts with a Rules of Engagement PDF sitting on a guest-readable share.</li>
     </ul>
+
+
+    <section class="hardening-guides" id="hardening-guides">
+      <h2><span class="num">◆</span>If this were my environment</h2>
+      <p>The chain used exposed management software, mailbox/domain trust, broad account-reset rights and an unsafe certificate template. I would treat all four as Tier 0 control-plane findings.</p>
+      <div class="hardening-plan">
+        <span class="tag">Priority controls</span>
+        <ul>
+        <li>Patch Windows Admin Center and mail software quickly, restrict both to management networks and require phishing-resistant MFA for administrators.</li>
+        <li>Protect password-reset and SAMR rights with narrowly scoped groups, approval workflows and alerts for privileged-account changes.</li>
+        <li>Review certificate templates for enrollee-supplied subjects, dangerous EKUs and broad enrollment; require manager approval where appropriate.</li>
+        <li>Separate email, workstation and domain-admin identities and prevent Tier 0 credentials from reaching lower-tier systems.</li>
+        </ul>
+      </div>
+
+      <h3>Hardening guides and benchmarks</h3>
+      <p class="guide-intro">These references offer different implementation paths: consensus benchmarks, prescriptive government checklists, vendor baselines and application-security verification requirements. I would select the profile that matches the system's role, document exceptions, test it in staging and continuously measure drift.</p>
+      <div class="guide-grid">
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/plan/security-best-practices/best-practices-for-securing-active-directory" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Securing Active Directory</strong>
+          <span>Tiering, privileged account protection, patching, monitoring and recovery guidance for AD DS.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/defender-for-identity/security-posture-assessments/certificates" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>AD CS security posture assessments</strong>
+          <span>Defender for Identity assessments for insecure certificate enrollment and template configuration.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/plan/security-best-practices/audit-policy-recommendations" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Windows audit policy recommendations</strong>
+          <span>Baseline and stronger audit settings for workstations, servers and directory objects.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/identity/laps/laps-overview" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Windows LAPS</strong>
+          <span>Automatic rotation and protected storage of unique local administrator passwords.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows/security/operating-system-security/device-management/windows-security-configuration-framework/windows-security-baselines" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Windows security baselines</strong>
+          <span>Microsoft-recommended Group Policy and MDM settings for Windows clients and servers.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/cis-benchmarks" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Benchmarks</strong>
+          <span>Consensus configuration baselines for operating systems, servers, containers and applications.</span>
+        </a>
+        <a class="guide-card" href="https://public.cyber.mil/stigs/downloads/" target="_blank" rel="noopener">
+          <span class="guide-source">DISA</span>
+          <strong>STIG Document Library</strong>
+          <span>DoD hardening checklists for Windows, Linux, Active Directory, IIS, databases and application servers.</span>
+        </a>
+        <a class="guide-card" href="https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final" target="_blank" rel="noopener">
+          <span class="guide-source">NIST</span>
+          <strong>SP 800-53 Rev. 5 controls</strong>
+          <span>A broad control catalog for access, configuration, audit, system integrity and incident response.</span>
+        </a>
+      </div>
+      <div class="callout hardening-note">
+        <span class="tag">Operational note</span>
+        CIS and DISA profiles can affect compatibility. Apply them through version-controlled policy, start in audit mode where supported, test business workloads and record every exception with an owner and review date.
+      </div>
+    </section>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>

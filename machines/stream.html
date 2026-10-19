@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Stream — HTB Writeup (Lanky)</title>
   <meta name="description" content="Hack The Box Stream: heap dump credential exposure, ClickHouse pipeline analysis, XXE file disclosure, backup-log recovery, and a root-owned DLQ formatter trust boundary.">
-  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="stylesheet" href="../assets/style.css?v=6">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#9992;</text></svg>">
 </head>
 <body>
@@ -160,6 +160,65 @@ root</code></pre>
       <li>Protect backups and logs as carefully as application secrets; historic records can expose valid credentials.</li>
       <li>Run scheduled tasks with the least privilege necessary and validate every file they execute.</li>
     </ul>
+
+
+    <section class="hardening-guides" id="hardening-guides">
+      <h2><span class="num">◆</span>If this were my environment</h2>
+      <p>Memory dumps, parser behavior, logs and a privileged dead-letter formatter all became credential or execution paths. I would minimize sensitive data at every stage of the stream-processing pipeline.</p>
+      <div class="hardening-plan">
+        <span class="tag">Priority controls</span>
+        <ul>
+        <li>Restrict heap-dump creation and access, exclude secrets from process arguments and memory where possible, and rotate credentials after diagnostic collection.</li>
+        <li>Disable XML external entities and network resolution, use hardened parsers, and validate input against a strict schema.</li>
+        <li>Redact tokens and passwords from Kopia and application logs; send logs to an append-only store with access controls and retention limits.</li>
+        <li>Run DLQ formatters as unprivileged workers with fixed templates and no shell, filesystem or secret-store access.</li>
+        </ul>
+      </div>
+
+      <h3>Hardening guides and benchmarks</h3>
+      <p class="guide-intro">These references offer different implementation paths: consensus benchmarks, prescriptive government checklists, vendor baselines and application-security verification requirements. I would select the profile that matches the system's role, document exceptions, test it in staging and continuously measure drift.</p>
+      <div class="guide-grid">
+        <a class="guide-card" href="https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>XXE Prevention Cheat Sheet</strong>
+          <span>Disable external entities and DTD processing, then use hardened parsers and schemas.</span>
+        </a>
+        <a class="guide-card" href="https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>Secrets Management Cheat Sheet</strong>
+          <span>Centralized storage, injection, scoping, auditing and rotation of credentials and keys.</span>
+        </a>
+        <a class="guide-card" href="https://owasp.org/projects/asvs" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>Application Security Verification Standard</strong>
+          <span>Testable requirements for authentication, access control, input handling, files and APIs.</span>
+        </a>
+        <a class="guide-card" href="https://csrc.nist.gov/pubs/sp/800/218/final" target="_blank" rel="noopener">
+          <span class="guide-source">NIST</span>
+          <strong>SP 800-218 Secure Software Development Framework</strong>
+          <span>Secure design, dependency governance, release integrity and vulnerability response practices.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/cis-benchmarks" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Benchmarks</strong>
+          <span>Consensus configuration baselines for operating systems, servers, containers and applications.</span>
+        </a>
+        <a class="guide-card" href="https://public.cyber.mil/stigs/downloads/" target="_blank" rel="noopener">
+          <span class="guide-source">DISA</span>
+          <strong>STIG Document Library</strong>
+          <span>DoD hardening checklists for Windows, Linux, Active Directory, IIS, databases and application servers.</span>
+        </a>
+        <a class="guide-card" href="https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/security_hardening/index" target="_blank" rel="noopener">
+          <span class="guide-source">Red Hat</span>
+          <strong>RHEL 9 Security Hardening</strong>
+          <span>Host hardening, cryptographic policy, integrity, auditing, SELinux and compliance guidance.</span>
+        </a>
+      </div>
+      <div class="callout hardening-note">
+        <span class="tag">Operational note</span>
+        CIS and DISA profiles can affect compatibility. Apply them through version-controlled policy, start in audit mode where supported, test business workloads and record every exception with an owner and review date.
+      </div>
+    </section>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>

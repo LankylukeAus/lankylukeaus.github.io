@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MakeSense — HTB Writeup (Lanky)</title>
   <meta name="description" content="Hack The Box: MakeSense — Medium Linux. An OCR web app running as root writes recognised text into its own served docroot, turning a picture of PHP into a root webshell. Plus a patched-by-backport CVE that looked like the answer and wasn't.">
-  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="stylesheet" href="../assets/style.css?v=6">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128065;</text></svg>">
 </head>
 <body>
@@ -218,6 +218,60 @@ ssh -i ~/.ssh/id_ed25519 root@makesense.htb</code></pre>
       <li><strong>The "boring" bugs drive most real privilege escalation:</strong> file writes and trust boundaries between two services that were each fine alone.</li>
       <li><strong>The OCR trick generalises.</strong> Per-character fixed pitch in a bold monospace face beats any transform-to-file pipeline that has to recognise text — worth remembering well beyond this box.</li>
     </ul>
+
+
+    <section class="hardening-guides" id="hardening-guides">
+      <h2><span class="num">◆</span>If this were my environment</h2>
+      <p>OCR output crossed directly into a root-owned execution path. I would separate untrusted document processing from privileged automation and require an explicit, integrity-checked promotion step.</p>
+      <div class="hardening-plan">
+        <span class="tag">Priority controls</span>
+        <ul>
+        <li>Process uploads in an isolated worker with no shell, network or privileged filesystem access and treat extracted text as hostile data.</li>
+        <li>Write results to a non-executable staging area; only a root-owned broker should validate and copy approved data onward.</li>
+        <li>Mount upload and output locations with noexec/nodev/nosuid where possible and apply mandatory access control.</li>
+        <li>Monitor privileged jobs for newly writable inputs, ownership changes and unexpected interpreter launches.</li>
+        </ul>
+      </div>
+
+      <h3>Hardening guides and benchmarks</h3>
+      <p class="guide-intro">These references offer different implementation paths: consensus benchmarks, prescriptive government checklists, vendor baselines and application-security verification requirements. I would select the profile that matches the system's role, document exceptions, test it in staging and continuously measure drift.</p>
+      <div class="guide-grid">
+        <a class="guide-card" href="https://owasp.org/projects/asvs" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>Application Security Verification Standard</strong>
+          <span>Testable requirements for authentication, access control, input handling, files and APIs.</span>
+        </a>
+        <a class="guide-card" href="https://csrc.nist.gov/pubs/sp/800/218/final" target="_blank" rel="noopener">
+          <span class="guide-source">NIST</span>
+          <strong>SP 800-218 Secure Software Development Framework</strong>
+          <span>Secure design, dependency governance, release integrity and vulnerability response practices.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/cis-benchmarks" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Benchmarks</strong>
+          <span>Consensus configuration baselines for operating systems, servers, containers and applications.</span>
+        </a>
+        <a class="guide-card" href="https://public.cyber.mil/stigs/downloads/" target="_blank" rel="noopener">
+          <span class="guide-source">DISA</span>
+          <strong>STIG Document Library</strong>
+          <span>DoD hardening checklists for Windows, Linux, Active Directory, IIS, databases and application servers.</span>
+        </a>
+        <a class="guide-card" href="https://documentation.ubuntu.com/security/compliance/usg/" target="_blank" rel="noopener">
+          <span class="guide-source">Canonical</span>
+          <strong>Ubuntu Security Guide</strong>
+          <span>Automated auditing and tailoring for CIS and DISA STIG profiles on supported Ubuntu releases.</span>
+        </a>
+        <a class="guide-card" href="https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/security_hardening/index" target="_blank" rel="noopener">
+          <span class="guide-source">Red Hat</span>
+          <strong>RHEL 9 Security Hardening</strong>
+          <span>Host hardening, cryptographic policy, integrity, auditing, SELinux and compliance guidance.</span>
+        </a>
+      </div>
+      <div class="callout hardening-note">
+        <span class="tag">Operational note</span>
+        CIS and DISA profiles can affect compatibility. Apply them through version-controlled policy, start in audit mode where supported, test business workloads and record every exception with an owner and review date.
+      </div>
+    </section>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>

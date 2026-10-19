@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Support — HTB Writeup (Lanky)</title>
   <meta name="description" content="Hack The Box: Support — Easy Windows DC. Anonymous SMB → decompiled binary → LDAP → RBCD → SYSTEM.">
-  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="stylesheet" href="../assets/style.css?v=6">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
 </head>
 <body>
@@ -86,6 +86,70 @@ getST.py -spn 'cifs/dc.support.htb' -impersonate Administrator support.htb/FAKE0
       <li><strong>Set <code>MachineAccountQuota</code> to 0</strong> to break RBCD at the source.</li>
       <li>Defence in depth: the attacker must win every step — the defender only has to win one.</li>
     </ul>
+
+
+    <section class="hardening-guides" id="hardening-guides">
+      <h2><span class="num">◆</span>If this were my environment</h2>
+      <p>The domain fell through anonymous file exposure, embedded credentials, cleartext directory data and excessive control over the DC object. I would prioritize directory hygiene and Tier 0 ACL review.</p>
+      <div class="hardening-plan">
+        <span class="tag">Priority controls</span>
+        <ul>
+        <li>Disable anonymous SMB access and inventory shares; publish only approved packages with access logging and integrity validation.</li>
+        <li>Move LDAP bind credentials to a managed secret store, rotate them automatically and never place passwords in description or info attributes.</li>
+        <li>Remove non-admin GenericAll/GenericWrite rights from DC computer objects and monitor changes to resource-based constrained delegation.</li>
+        <li>Set MachineAccountQuota to the business-required minimum, use LAPS for local accounts and separate administrative identities by tier.</li>
+        </ul>
+      </div>
+
+      <h3>Hardening guides and benchmarks</h3>
+      <p class="guide-intro">These references offer different implementation paths: consensus benchmarks, prescriptive government checklists, vendor baselines and application-security verification requirements. I would select the profile that matches the system's role, document exceptions, test it in staging and continuously measure drift.</p>
+      <div class="guide-grid">
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/plan/security-best-practices/best-practices-for-securing-active-directory" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Securing Active Directory</strong>
+          <span>Tiering, privileged account protection, patching, monitoring and recovery guidance for AD DS.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/plan/security-best-practices/audit-policy-recommendations" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Windows audit policy recommendations</strong>
+          <span>Baseline and stronger audit settings for workstations, servers and directory objects.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/storage/file-server/smb-security-hardening" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>SMB security hardening</strong>
+          <span>Signing, encryption, guest access, dialect controls and defenses against credential relay.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/identity/laps/laps-overview" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Windows LAPS</strong>
+          <span>Automatic rotation and protected storage of unique local administrator passwords.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/security/osconfig/osconfig-how-to-configure-security-baselines" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Windows Server 2025 baseline</strong>
+          <span>Role-aware OSConfig baseline covering firewalling, credentials, SMB signing, auditing and tamper resistance.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/cis-benchmarks" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Benchmarks</strong>
+          <span>Consensus configuration baselines for operating systems, servers, containers and applications.</span>
+        </a>
+        <a class="guide-card" href="https://public.cyber.mil/stigs/downloads/" target="_blank" rel="noopener">
+          <span class="guide-source">DISA</span>
+          <strong>STIG Document Library</strong>
+          <span>DoD hardening checklists for Windows, Linux, Active Directory, IIS, databases and application servers.</span>
+        </a>
+        <a class="guide-card" href="https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>Secrets Management Cheat Sheet</strong>
+          <span>Centralized storage, injection, scoping, auditing and rotation of credentials and keys.</span>
+        </a>
+      </div>
+      <div class="callout hardening-note">
+        <span class="tag">Operational note</span>
+        CIS and DISA profiles can affect compatibility. Apply them through version-controlled policy, start in audit mode where supported, test business workloads and record every exception with an owner and review date.
+      </div>
+    </section>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>

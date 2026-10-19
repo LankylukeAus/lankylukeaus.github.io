@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Cohort — HTB Writeup (Lanky)</title>
   <meta name="description" content="Hack The Box: Cohort — Easy Linux. SSRF through a string-match blocklist into an internal marimo notebook, a pre-auth WebSocket RCE (CVE-2026-39987) reached via a wildcard-cert dynamic host, and root through a held, partially-upgraded PackageKit package (CVE-2026-41651).">
-  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="stylesheet" href="../assets/style.css?v=6">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128225;</text></svg>">
 </head>
 <body>
@@ -320,6 +320,65 @@ uid=1000(marimo) gid=1000(marimo) euid=0(root) groups=1000(marimo)</code></pre>
       <li><strong>Rule kernel CVEs out with version checks, not exploits.</strong> Seven named traps, all dead — five minutes of <code>dpkg</code> and <code>sysctl</code> beat an afternoon of running PoCs.</li>
       <li><strong>Never hold a package below its own libraries.</strong> The entire root path was one pinned daemon. Patch state <em>is</em> attack surface.</li>
     </ul>
+
+
+    <section class="hardening-guides" id="hardening-guides">
+      <h2><span class="num">◆</span>If this were my environment</h2>
+      <p>The attack moved from a web SSRF into a development notebook and then through an over-privileged package-management path. I would segment development tooling and make every privileged package action explicit and authenticated.</p>
+      <div class="hardening-plan">
+        <span class="tag">Priority controls</span>
+        <ul>
+        <li>Place notebooks and developer consoles on a management network, require strong authentication and disable anonymous or cross-origin execution.</li>
+        <li>Enforce outbound URL allow-lists and network egress policy so a web application cannot reach loopback or internal administration services.</li>
+        <li>Patch PackageKit and its dependencies promptly, restrict D-Bus policy, and remove package-management rights from application identities.</li>
+        <li>Use a hardened Linux baseline plus service sandboxing, read-only paths and mandatory access control to contain a compromised worker.</li>
+        </ul>
+      </div>
+
+      <h3>Hardening guides and benchmarks</h3>
+      <p class="guide-intro">These references offer different implementation paths: consensus benchmarks, prescriptive government checklists, vendor baselines and application-security verification requirements. I would select the profile that matches the system's role, document exceptions, test it in staging and continuously measure drift.</p>
+      <div class="guide-grid">
+        <a class="guide-card" href="https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>SSRF Prevention Cheat Sheet</strong>
+          <span>Allow-listing, DNS/IP validation, redirect controls and network-layer egress restrictions.</span>
+        </a>
+        <a class="guide-card" href="https://owasp.org/projects/asvs" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>Application Security Verification Standard</strong>
+          <span>Testable requirements for authentication, access control, input handling, files and APIs.</span>
+        </a>
+        <a class="guide-card" href="https://csrc.nist.gov/pubs/sp/800/218/final" target="_blank" rel="noopener">
+          <span class="guide-source">NIST</span>
+          <strong>SP 800-218 Secure Software Development Framework</strong>
+          <span>Secure design, dependency governance, release integrity and vulnerability response practices.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/cis-benchmarks" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Benchmarks</strong>
+          <span>Consensus configuration baselines for operating systems, servers, containers and applications.</span>
+        </a>
+        <a class="guide-card" href="https://public.cyber.mil/stigs/downloads/" target="_blank" rel="noopener">
+          <span class="guide-source">DISA</span>
+          <strong>STIG Document Library</strong>
+          <span>DoD hardening checklists for Windows, Linux, Active Directory, IIS, databases and application servers.</span>
+        </a>
+        <a class="guide-card" href="https://documentation.ubuntu.com/security/compliance/usg/" target="_blank" rel="noopener">
+          <span class="guide-source">Canonical</span>
+          <strong>Ubuntu Security Guide</strong>
+          <span>Automated auditing and tailoring for CIS and DISA STIG profiles on supported Ubuntu releases.</span>
+        </a>
+        <a class="guide-card" href="https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/security_hardening/index" target="_blank" rel="noopener">
+          <span class="guide-source">Red Hat</span>
+          <strong>RHEL 9 Security Hardening</strong>
+          <span>Host hardening, cryptographic policy, integrity, auditing, SELinux and compliance guidance.</span>
+        </a>
+      </div>
+      <div class="callout hardening-note">
+        <span class="tag">Operational note</span>
+        CIS and DISA profiles can affect compatibility. Apply them through version-controlled policy, start in audit mode where supported, test business workloads and record every exception with an owner and review date.
+      </div>
+    </section>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>

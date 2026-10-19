@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Jurassic Park — TryHackMe Writeup (Lanky)</title>
   <meta name="description" content="TryHackMe: Jurassic Park — manual union-based SQL injection challenge.">
-  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="stylesheet" href="../assets/style.css?v=6">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
 </head>
 <body>
@@ -66,6 +66,65 @@
       <li><strong>Blacklist filtering is not a fix</strong> — case-mixing, comments and encoding bypass it; use prepared statements + allow-lists.</li>
       <li>Doing it by hand (no sqlmap) builds real understanding of UNION injection and <code>information_schema</code>.</li>
     </ul>
+
+
+    <section class="hardening-guides" id="hardening-guides">
+      <h2><span class="num">◆</span>If this were my environment</h2>
+      <p>The application trusted user input inside database queries and exposed more data than the page required. I would fix the query layer, reduce database privileges and verify the whole application against a repeatable standard.</p>
+      <div class="hardening-plan">
+        <span class="tag">Priority controls</span>
+        <ul>
+        <li>Use prepared statements with bound parameters for every query; never build SQL by concatenating request data.</li>
+        <li>Give the application a dedicated database account with only the required tables and actions, and keep the database off public interfaces.</li>
+        <li>Return generic errors to clients while preserving structured server-side audit logs and alerting on injection patterns.</li>
+        <li>Add SAST, dependency scanning and security tests mapped to OWASP ASVS in the release pipeline.</li>
+        </ul>
+      </div>
+
+      <h3>Hardening guides and benchmarks</h3>
+      <p class="guide-intro">These references offer different implementation paths: consensus benchmarks, prescriptive government checklists, vendor baselines and application-security verification requirements. I would select the profile that matches the system's role, document exceptions, test it in staging and continuously measure drift.</p>
+      <div class="guide-grid">
+        <a class="guide-card" href="https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>SQL Injection Prevention</strong>
+          <span>Parameterized queries, allow-list validation and least-privileged database accounts.</span>
+        </a>
+        <a class="guide-card" href="https://owasp.org/projects/asvs" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>Application Security Verification Standard</strong>
+          <span>Testable requirements for authentication, access control, input handling, files and APIs.</span>
+        </a>
+        <a class="guide-card" href="https://csrc.nist.gov/pubs/sp/800/218/final" target="_blank" rel="noopener">
+          <span class="guide-source">NIST</span>
+          <strong>SP 800-218 Secure Software Development Framework</strong>
+          <span>Secure design, dependency governance, release integrity and vulnerability response practices.</span>
+        </a>
+        <a class="guide-card" href="https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>Secrets Management Cheat Sheet</strong>
+          <span>Centralized storage, injection, scoping, auditing and rotation of credentials and keys.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/cis-benchmarks" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Benchmarks</strong>
+          <span>Consensus configuration baselines for operating systems, servers, containers and applications.</span>
+        </a>
+        <a class="guide-card" href="https://public.cyber.mil/stigs/downloads/" target="_blank" rel="noopener">
+          <span class="guide-source">DISA</span>
+          <strong>STIG Document Library</strong>
+          <span>DoD hardening checklists for Windows, Linux, Active Directory, IIS, databases and application servers.</span>
+        </a>
+        <a class="guide-card" href="https://documentation.ubuntu.com/security/compliance/usg/" target="_blank" rel="noopener">
+          <span class="guide-source">Canonical</span>
+          <strong>Ubuntu Security Guide</strong>
+          <span>Automated auditing and tailoring for CIS and DISA STIG profiles on supported Ubuntu releases.</span>
+        </a>
+      </div>
+      <div class="callout hardening-note">
+        <span class="tag">Operational note</span>
+        CIS and DISA profiles can affect compatibility. Apply them through version-controlled policy, start in audit mode where supported, test business workloads and record every exception with an owner and review date.
+      </div>
+    </section>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>

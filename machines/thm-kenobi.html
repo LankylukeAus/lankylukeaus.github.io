@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Kenobi — TryHackMe Writeup (Lanky)</title>
   <meta name="description" content="TryHackMe: Kenobi — Samba enum, ProFTPd mod_copy, NFS, SUID path hijack to root.">
-  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="stylesheet" href="../assets/style.css?v=6">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
 </head>
 <body>
@@ -72,6 +72,60 @@ export PATH=/tmp:$PATH
       <li><strong>Lock down anonymous SMB &amp; NFS exports</strong>; don't export writable paths that hold secrets.</li>
       <li><strong>SUID binaries must call absolute paths</strong> — relative calls invite PATH hijacking.</li>
     </ul>
+
+
+    <section class="hardening-guides" id="hardening-guides">
+      <h2><span class="num">◆</span>If this were my environment</h2>
+      <p>Legacy FTP features exposed files through NFS and a SUID program trusted the caller's PATH. I would remove unnecessary services, tighten exports and make every privileged executable use absolute, trusted dependencies.</p>
+      <div class="hardening-plan">
+        <span class="tag">Priority controls</span>
+        <ul>
+        <li>Patch or remove ProFTPd modules such as mod_copy when unused and restrict FTP to approved networks and accounts.</li>
+        <li>Export NFS only to explicit hosts with least privilege, root squashing and restrictive filesystem ownership; avoid exporting sensitive home data.</li>
+        <li>Remove unnecessary SUID bits; for unavoidable privileged programs, set a fixed environment and call absolute binary paths.</li>
+        <li>Use file-integrity monitoring to detect changes to SUID files, exports, service modules and privileged search paths.</li>
+        </ul>
+      </div>
+
+      <h3>Hardening guides and benchmarks</h3>
+      <p class="guide-intro">These references offer different implementation paths: consensus benchmarks, prescriptive government checklists, vendor baselines and application-security verification requirements. I would select the profile that matches the system's role, document exceptions, test it in staging and continuously measure drift.</p>
+      <div class="guide-grid">
+        <a class="guide-card" href="https://www.cisecurity.org/cis-benchmarks" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Benchmarks</strong>
+          <span>Consensus configuration baselines for operating systems, servers, containers and applications.</span>
+        </a>
+        <a class="guide-card" href="https://public.cyber.mil/stigs/downloads/" target="_blank" rel="noopener">
+          <span class="guide-source">DISA</span>
+          <strong>STIG Document Library</strong>
+          <span>DoD hardening checklists for Windows, Linux, Active Directory, IIS, databases and application servers.</span>
+        </a>
+        <a class="guide-card" href="https://documentation.ubuntu.com/security/compliance/usg/" target="_blank" rel="noopener">
+          <span class="guide-source">Canonical</span>
+          <strong>Ubuntu Security Guide</strong>
+          <span>Automated auditing and tailoring for CIS and DISA STIG profiles on supported Ubuntu releases.</span>
+        </a>
+        <a class="guide-card" href="https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/security_hardening/index" target="_blank" rel="noopener">
+          <span class="guide-source">Red Hat</span>
+          <strong>RHEL 9 Security Hardening</strong>
+          <span>Host hardening, cryptographic policy, integrity, auditing, SELinux and compliance guidance.</span>
+        </a>
+        <a class="guide-card" href="https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final" target="_blank" rel="noopener">
+          <span class="guide-source">NIST</span>
+          <strong>SP 800-53 Rev. 5 controls</strong>
+          <span>A broad control catalog for access, configuration, audit, system integrity and incident response.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/controls/v8" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Critical Security Controls v8</strong>
+          <span>A prioritized control program for inventory, access, vulnerability management, logging and recovery.</span>
+        </a>
+      </div>
+      <div class="callout hardening-note">
+        <span class="tag">Operational note</span>
+        CIS and DISA profiles can affect compatibility. Apply them through version-controlled policy, start in audit mode where supported, test business workloads and record every exception with an owner and review date.
+      </div>
+    </section>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>

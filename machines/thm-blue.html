@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Blue — TryHackMe Writeup (Lanky)</title>
   <meta name="description" content="TryHackMe: Blue — EternalBlue (MS17-010) on Windows 7 to SYSTEM.">
-  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="stylesheet" href="../assets/style.css?v=6">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
 </head>
 <body>
@@ -66,6 +66,65 @@ hashcat -m 1000 jon.hash /usr/share/wordlists/rockyou.txt   # -> alqfna22</code>
       <li><strong>Disable SMBv1</strong> and segment/​firewall 445 off untrusted networks.</li>
       <li>Local NTLM hashes crack fast against rockyou when passwords are weak — enforce length + block reuse.</li>
     </ul>
+
+
+    <section class="hardening-guides" id="hardening-guides">
+      <h2><span class="num">◆</span>If this were my environment</h2>
+      <p>This was a direct consequence of an unsupported, unpatched operating system exposing SMBv1. I would remove the legacy protocol and make missing critical updates a deployment-blocking condition.</p>
+      <div class="hardening-plan">
+        <span class="tag">Priority controls</span>
+        <ul>
+        <li>Retire Windows 7, apply MS17-010 everywhere it still exists during migration, and verify remediation with authenticated scanning.</li>
+        <li>Disable SMBv1, require modern SMB dialects and signing, and allow TCP/445 only between systems with a documented need.</li>
+        <li>Use Windows LAPS and long unique local passwords so a dumped local hash cannot be reused across the fleet.</li>
+        <li>Track CISA KEV and vendor advisories in a risk-based patch process with deadlines, ownership and exception review.</li>
+        </ul>
+      </div>
+
+      <h3>Hardening guides and benchmarks</h3>
+      <p class="guide-intro">These references offer different implementation paths: consensus benchmarks, prescriptive government checklists, vendor baselines and application-security verification requirements. I would select the profile that matches the system's role, document exceptions, test it in staging and continuously measure drift.</p>
+      <div class="guide-grid">
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/security-updates/securitybulletins/2017/ms17-010" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>MS17-010 security bulletin</strong>
+          <span>Official remediation details for the SMBv1 flaws used by EternalBlue.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/storage/file-server/smb-security-hardening" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>SMB security hardening</strong>
+          <span>Signing, encryption, guest access, dialect controls and defenses against credential relay.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/identity/laps/laps-overview" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Windows LAPS</strong>
+          <span>Automatic rotation and protected storage of unique local administrator passwords.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows/security/operating-system-security/device-management/windows-security-configuration-framework/windows-security-baselines" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Windows security baselines</strong>
+          <span>Microsoft-recommended Group Policy and MDM settings for Windows clients and servers.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/cis-benchmarks" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Benchmarks</strong>
+          <span>Consensus configuration baselines for operating systems, servers, containers and applications.</span>
+        </a>
+        <a class="guide-card" href="https://public.cyber.mil/stigs/downloads/" target="_blank" rel="noopener">
+          <span class="guide-source">DISA</span>
+          <strong>STIG Document Library</strong>
+          <span>DoD hardening checklists for Windows, Linux, Active Directory, IIS, databases and application servers.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/controls/v8" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Critical Security Controls v8</strong>
+          <span>A prioritized control program for inventory, access, vulnerability management, logging and recovery.</span>
+        </a>
+      </div>
+      <div class="callout hardening-note">
+        <span class="tag">Operational note</span>
+        CIS and DISA profiles can affect compatibility. Apply them through version-controlled policy, start in audit mode where supported, test business workloads and record every exception with an owner and review date.
+      </div>
+    </section>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>

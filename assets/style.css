@@ -519,3 +519,29 @@ article .no { color: var(--amber); }
 .ctrl { font-size: 13px; color: var(--fg-dim); border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px; line-height: 1.7; }
 .ctrl b { color: var(--fg); }
 .ctrl .stig b { color: var(--amber); }
+
+
+/* ── Hardening guidance ─────────────────────────────────────────── */
+.hardening-guides { margin-top: 54px; padding-top: 8px; }
+.hardening-plan {
+  border: 1px solid var(--border); border-left: 3px solid var(--green);
+  background: var(--bg-soft); border-radius: 0 8px 8px 0; padding: 16px 18px; margin: 20px 0 28px;
+}
+.hardening-plan .tag, .hardening-note .tag {
+  display: block; font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--green); margin-bottom: 7px;
+}
+.hardening-plan ul { margin: 8px 0 0; }
+.guide-intro { max-width: 82ch; color: var(--fg-dim); }
+.guide-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 18px 0 22px; }
+.guide-card {
+  display: flex; flex-direction: column; gap: 6px; min-height: 118px; padding: 16px;
+  color: var(--fg); text-decoration: none; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 8px; transition: border-color .14s ease, transform .14s ease;
+}
+.guide-card:hover { border-color: var(--green-dim); transform: translateY(-2px); }
+.guide-card .guide-source { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--green); }
+.guide-card strong { color: var(--fg-bright); font-size: 15px; }
+.guide-card > span:last-child { color: var(--fg-dim); font-size: 13px; line-height: 1.55; }
+.hardening-note { margin-top: 22px; }
+@media (max-width: 700px) { .guide-grid { grid-template-columns: 1fr; } }

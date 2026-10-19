@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DarkZeroReturns — HTB Writeup (Lanky)</title>
   <meta name="description" content="Hack The Box: DarkZeroReturns — Hard. Handlebars AST type-confusion RCE (CVE-2026-33940) on a Node.js app, pivot from a Linux foothold into a two-domain Active Directory environment, Kerberos-principal-to-root and a cross-domain pass-the-hash.">
-  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="stylesheet" href="../assets/style.css?v=6">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
 </head>
 <body>
@@ -263,6 +263,70 @@ proxychains nxc smb 172.16.20.1 -u Administrator -H &lt;ntlm&gt; -d darkzero.htb
       <li><strong>If the directory defines an identity, writing to the directory creates that identity</strong> — including root.</li>
       <li><strong>Know what you derived and what you were given.</strong> The last third of this box was handed to me, and saying so is worth more than a tidier story.</li>
     </ul>
+
+
+    <section class="hardening-guides" id="hardening-guides">
+      <h2><span class="num">◆</span>If this were my environment</h2>
+      <p>Template injection became operating-system execution and exposed credentials that worked across a multi-domain environment. I would fix the rendering boundary and assume every recovered secret requires domain-wide rotation.</p>
+      <div class="hardening-plan">
+        <span class="tag">Priority controls</span>
+        <ul>
+        <li>Keep template source immutable and pass user input only as data; use a sandboxed, minimal render context without filesystem or process objects.</li>
+        <li>Store service credentials in a managed vault, issue separate secrets per domain and service, and prevent password/hash reuse across trust boundaries.</li>
+        <li>Restrict Kerberos delegation and cross-domain administrative paths; monitor unusual ticket requests, pass-the-hash behavior and privileged logons.</li>
+        <li>Run the web service in a confined identity with no access to domain credentials or administrative network segments.</li>
+        </ul>
+      </div>
+
+      <h3>Hardening guides and benchmarks</h3>
+      <p class="guide-intro">These references offer different implementation paths: consensus benchmarks, prescriptive government checklists, vendor baselines and application-security verification requirements. I would select the profile that matches the system's role, document exceptions, test it in staging and continuously measure drift.</p>
+      <div class="guide-grid">
+        <a class="guide-card" href="https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Template_Injection_Prevention_Cheat_Sheet.html" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>Server-Side Template Injection Prevention</strong>
+          <span>Treat templates as code, keep render contexts minimal and never evaluate untrusted template input.</span>
+        </a>
+        <a class="guide-card" href="https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>Secrets Management Cheat Sheet</strong>
+          <span>Centralized storage, injection, scoping, auditing and rotation of credentials and keys.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/plan/security-best-practices/best-practices-for-securing-active-directory" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Securing Active Directory</strong>
+          <span>Tiering, privileged account protection, patching, monitoring and recovery guidance for AD DS.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/plan/security-best-practices/audit-policy-recommendations" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Windows audit policy recommendations</strong>
+          <span>Baseline and stronger audit settings for workstations, servers and directory objects.</span>
+        </a>
+        <a class="guide-card" href="https://owasp.org/projects/asvs" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>Application Security Verification Standard</strong>
+          <span>Testable requirements for authentication, access control, input handling, files and APIs.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/cis-benchmarks" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Benchmarks</strong>
+          <span>Consensus configuration baselines for operating systems, servers, containers and applications.</span>
+        </a>
+        <a class="guide-card" href="https://public.cyber.mil/stigs/downloads/" target="_blank" rel="noopener">
+          <span class="guide-source">DISA</span>
+          <strong>STIG Document Library</strong>
+          <span>DoD hardening checklists for Windows, Linux, Active Directory, IIS, databases and application servers.</span>
+        </a>
+        <a class="guide-card" href="https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/security_hardening/index" target="_blank" rel="noopener">
+          <span class="guide-source">Red Hat</span>
+          <strong>RHEL 9 Security Hardening</strong>
+          <span>Host hardening, cryptographic policy, integrity, auditing, SELinux and compliance guidance.</span>
+        </a>
+      </div>
+      <div class="callout hardening-note">
+        <span class="tag">Operational note</span>
+        CIS and DISA profiles can affect compatibility. Apply them through version-controlled policy, start in audit mode where supported, test business workloads and record every exception with an owner and review date.
+      </div>
+    </section>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>

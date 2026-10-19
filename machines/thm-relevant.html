@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Relevant — TryHackMe Writeup (Lanky)</title>
   <meta name="description" content="TryHackMe: Relevant — SMB writable share, ASPX webshell, SeImpersonatePrivilege to SYSTEM.">
-  <link rel="stylesheet" href="../assets/style.css?v=5">
+  <link rel="stylesheet" href="../assets/style.css?v=6">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127875;</text></svg>">
 </head>
 <body>
@@ -66,6 +66,65 @@ curl http://10.10.X.X:49663/nt4wrksv/shell.aspx     # -> shell as iis apppool\de
       <li><strong>Don't store credentials in files on shares</strong> — base64 is encoding, not protection.</li>
       <li><strong>SeImpersonate on service accounts = SYSTEM</strong> via Potato/PrintSpoofer — scope service privileges tightly.</li>
     </ul>
+
+
+    <section class="hardening-guides" id="hardening-guides">
+      <h2><span class="num">◆</span>If this were my environment</h2>
+      <p>A writable SMB share mapped into the IIS web root allowed direct web-shell execution, and a service token retained an impersonation privilege. I would break both conditions and harden the Windows host from a tested baseline.</p>
+      <div class="hardening-plan">
+        <span class="tag">Priority controls</span>
+        <ul>
+        <li>Separate content-upload storage from executable web roots; deny script execution in writable directories and scan accepted file types.</li>
+        <li>Remove guest or broad write access from SMB shares, require signing and audit successful writes to web and service paths.</li>
+        <li>Run IIS application pools under dedicated virtual accounts with the minimum privileges and constrain token impersonation exposure.</li>
+        <li>Apply Microsoft, CIS or DISA baselines through policy and validate drift continuously rather than relying on one-time configuration.</li>
+        </ul>
+      </div>
+
+      <h3>Hardening guides and benchmarks</h3>
+      <p class="guide-intro">These references offer different implementation paths: consensus benchmarks, prescriptive government checklists, vendor baselines and application-security verification requirements. I would select the profile that matches the system's role, document exceptions, test it in staging and continuously measure drift.</p>
+      <div class="guide-grid">
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows/security/operating-system-security/device-management/windows-security-configuration-framework/windows-security-baselines" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Windows security baselines</strong>
+          <span>Microsoft-recommended Group Policy and MDM settings for Windows clients and servers.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/storage/file-server/smb-security-hardening" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>SMB security hardening</strong>
+          <span>Signing, encryption, guest access, dialect controls and defenses against credential relay.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/security/osconfig/osconfig-how-to-configure-security-baselines" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Windows Server 2025 baseline</strong>
+          <span>Role-aware OSConfig baseline covering firewalling, credentials, SMB signing, auditing and tamper resistance.</span>
+        </a>
+        <a class="guide-card" href="https://owasp.org/projects/asvs" target="_blank" rel="noopener">
+          <span class="guide-source">OWASP</span>
+          <strong>Application Security Verification Standard</strong>
+          <span>Testable requirements for authentication, access control, input handling, files and APIs.</span>
+        </a>
+        <a class="guide-card" href="https://www.cisecurity.org/cis-benchmarks" target="_blank" rel="noopener">
+          <span class="guide-source">CIS</span>
+          <strong>CIS Benchmarks</strong>
+          <span>Consensus configuration baselines for operating systems, servers, containers and applications.</span>
+        </a>
+        <a class="guide-card" href="https://public.cyber.mil/stigs/downloads/" target="_blank" rel="noopener">
+          <span class="guide-source">DISA</span>
+          <strong>STIG Document Library</strong>
+          <span>DoD hardening checklists for Windows, Linux, Active Directory, IIS, databases and application servers.</span>
+        </a>
+        <a class="guide-card" href="https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/plan/security-best-practices/audit-policy-recommendations" target="_blank" rel="noopener">
+          <span class="guide-source">Microsoft</span>
+          <strong>Windows audit policy recommendations</strong>
+          <span>Baseline and stronger audit settings for workstations, servers and directory objects.</span>
+        </a>
+      </div>
+      <div class="callout hardening-note">
+        <span class="tag">Operational note</span>
+        CIS and DISA profiles can affect compatibility. Apply them through version-controlled policy, start in audit mode where supported, test business workloads and record every exception with an owner and review date.
+      </div>
+    </section>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>
