@@ -282,6 +282,8 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
 /* ── Badge chips ────────────────────────────────────────────────────── */
 .badges { display: flex; flex-wrap: wrap; gap: 10px; }
 .badge-chip { display: flex; align-items: center; gap: 11px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 11px 15px; }
+a.badge-chip { color: inherit; text-decoration: none; transition: border-color .12s ease, transform .12s ease; }
+a.badge-chip:hover { border-color: var(--green-dim); transform: translateY(-1px); }
 .badge-chip .bicon { font-size: 22px; line-height: 1; }
 .badge-chip .bt { color: var(--fg-bright); font-size: 13px; font-weight: 600; }
 .badge-chip .bd { color: var(--fg-dim); font-size: 11px; font-family: var(--mono); margin-top: 1px; }
@@ -428,6 +430,7 @@ a.sname:hover { text-decoration: underline; }
 .cert-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg,var(--amber),var(--green)); box-shadow: 0 0 10px rgba(34,211,238,.18); }
 .cert .cstatus { font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--green-dim); color: var(--green); }
 .cert .cstatus.wip { color: var(--amber); border-color: rgba(255,184,0,.4); }
+.cert .cstatus.expired { color: #ff7b72; border-color: rgba(255,123,114,.45); background: rgba(255,123,114,.06); }
 .cert .cstatus.pending-exam {
   color: #08130b;
   background: var(--green);
