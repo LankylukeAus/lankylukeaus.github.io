@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Message Minder Android App · Lanky</title>
+  <meta name="description" content="Message Minder is Luke Gerritsen's privacy-aware Android prototype for turning actionable messages into reviewed calendar events and reminders.">
+  <link rel="canonical" href="https://lankylukeaus.github.io/projects/message-minder.html">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Message Minder Android App · Lanky">
+  <meta property="og:description" content="A privacy-aware Android message-to-calendar assistant with conservative automation, provider integrations and evidence-led testing.">
+  <meta property="og:url" content="https://lankylukeaus.github.io/projects/message-minder.html">
+  <meta property="og:image" content="https://lankylukeaus.github.io/assets/logo-herd.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="../assets/style.css?v=10">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128197;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#projects">← all projects</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#projects">back to projects</a>
+    <h1 style="margin-top:16px;">Message Minder</h1>
+    <div class="subtitle">A privacy-aware Android assistant that turns actionable messages into calendar plans</div>
+    <div class="machine-meta">
+      <span class="pill">Android</span>
+      <span class="pill">Java</span>
+      <span class="pill">Google APIs</span>
+      <span class="pill">Microsoft Graph</span>
+      <span class="pill">Version 0.15.0</span>
+      <span class="pill st-build">Private candidate</span>
+    </div>
+
+    <div class="callout">
+      <span class="tag">The goal</span>
+      Reduce the chance of forgetting an appointment or agreed plan without handing private conversations to a
+      general-purpose cloud AI service. Message Minder finds actionable information, preserves uncertainty and keeps
+      the user in control of what reaches their calendar.
+    </div>
+
+    <h2><span class="num">01</span>The problem</h2>
+    <p>
+      Appointments and commitments often arrive as ordinary messages: a clinic sends a time, a friend proposes
+      dinner, or somebody changes a plan in a later reply. The useful detail is easy to lose across SMS, email and
+      messaging notifications. Message Minder brings those details into one review and automation workflow.
+    </p>
+    <p>
+      I am building the app as a personal Android prototype. It focuses on conservative English-language detection
+      instead of assuming that every date or casual question is a confirmed event. Ambiguous details, competing
+      invitations and conflicting times remain visible for review.
+    </p>
+
+    <h2><span class="num">02</span>How it works</h2>
+    <ol>
+      <li><strong>Capture:</strong> read authorised SMS and connected email, with optional notification previews for supported messaging apps.</li>
+      <li><strong>Classify:</strong> separate actionable appointments, tasks and plans from marketing, quoted history and messages about somebody else.</li>
+      <li><strong>Resolve:</strong> extract dates, times, duration and location while retaining uncertainty where the message is incomplete.</li>
+      <li><strong>Review or automate:</strong> request missing details, present tentative items, or create an event when configured safety conditions are met.</li>
+      <li><strong>Track:</strong> retain corrections, cancellations, retry state, undo information and an activity history.</li>
+    </ol>
+
+    <h2><span class="num">03</span>Conversation-aware plans</h2>
+    <p>
+      The 0.15.0 candidate adds invitation context. A question such as “Fancy lunch tomorrow?” waits for a later,
+      clear acceptance before it becomes a plan. Declines, unrelated replies, stale responses, competing invitations
+      and counterproposals do not silently create an event. When a message omits a clock time, the app can use the
+      user's configured meal time or keep the item for clarification.
+    </p>
+    <p>
+      This is deliberately bounded logic rather than a claim of general language understanding. The app keeps a
+      limited amount of recent conversation context on the device, filters its own automated replies, and provides a
+      manual acceptance path when Android does not expose a sent RCS preview.
+    </p>
+
+    <h2><span class="num">04</span>Calendar and account integration</h2>
+    <ul>
+      <li>Google Identity Services for Gmail and Google Calendar authorisation.</li>
+      <li>Microsoft AppAuth and Graph-compatible email/calendar flows.</li>
+      <li>User selection of the destination calendar rather than an implicit local-calendar fallback.</li>
+      <li>Stable event or transaction identifiers so retries reuse the original draft and reduce duplicate events.</li>
+      <li>Optional work-calendar sharing, travel buffers, conflict warnings and provider reminders.</li>
+    </ul>
+    <div class="callout">
+      <span class="tag">Integration status</span>
+      Google account connection and calendar writing have been exercised during development. Outlook-compatible
+      paths are implemented and tested with isolated transports, but production Outlook registration and live
+      end-to-end verification are still pending.
+    </div>
+
+    <h2><span class="num">05</span>Privacy and safety by design</h2>
+    <ul>
+      <li>Conversation parsing and decision logic run on the device; no AI backend receives the conversation context.</li>
+      <li>Android and provider permissions are checked before normal use, and revoked access blocks the affected workflow.</li>
+      <li>Original message text is excluded from calendar descriptions and invitations unless the user enables the relevant sharing option.</li>
+      <li>Do-not-add rules can exclude contacts, groups and phrases before calendar automation.</li>
+      <li>Quiet hours and reply limits constrain automatic clarification messages.</li>
+      <li>Tokens and provider state use the platform or SDK security mechanisms rather than embedded client secrets.</li>
+      <li>Erase controls remove captured context while leaving provider calendar events under the user's control.</li>
+    </ul>
+
+    <h2><span class="num">06</span>Validation evidence</h2>
+    <p>
+      The current documented candidate is version 0.15.0, installed on a Pixel 8. The following checks passed in the
+      project validation record:
+    </p>
+    <ul>
+      <li><strong>214 JVM tests</strong> covering extraction, setup gates, conversation acceptance, declines, replay deduplication, privacy and earlier scheduling workflows.</li>
+      <li><strong>Debug and release lint</strong>, debug/test APK builds and an unsigned release AAB build.</li>
+      <li><strong>Memory-only workflow harness</strong> using controlled reply and calendar callbacks.</li>
+      <li><strong>Isolated Android tests on a real Pixel</strong> without sending external messages, invitations or calendar requests.</li>
+      <li>Cases for out-of-order email, stale acceptance, multiple invitations, counterproposals, saved addresses and shared-message privacy.</li>
+    </ul>
+    <p>
+      These checks establish repeatable behaviour in the tested cases. They do not replace live-provider, usability,
+      accessibility, device-compatibility or long-duration background testing.
+    </p>
+
+    <h2><span class="num">07</span>Current limits and release gates</h2>
+    <ul>
+      <li>Notification access still depends on the user granting Android permission and on the source app exposing useful preview text.</li>
+      <li>RCS history is not generally available; sent RCS capture may be missed when no notification preview is produced.</li>
+      <li>Conversation rules are conservative and English-specific, so unfamiliar wording can be missed or held for review.</li>
+      <li>A live end-to-end acceptance test with a real calendar and a new RCS conversation remains outstanding.</li>
+      <li>Locked-device, reboot, offline and live provider-change scenarios need further real-world testing.</li>
+      <li>Public release requires signing, current store disclosures, provider verification and a viable Google Play SMS-permission pathway.</li>
+      <li>No production release or public download is being claimed on this page.</li>
+    </ul>
+
+    <h2><span class="num">08</span>What the project demonstrates</h2>
+    <ul>
+      <li>Android application engineering and lifecycle-aware background work.</li>
+      <li>OAuth, provider API integration and least-privilege permission design.</li>
+      <li>Privacy modelling for sensitive message and calendar data.</li>
+      <li>Rule-based parsing, state correlation, idempotent retries and recovery design.</li>
+      <li>Test-driven iteration with explicit evidence, limitations and release gates.</li>
+      <li>Translation of an everyday problem into a controlled, explainable workflow.</li>
+    </ul>
+
+    <h2><span class="num">09</span>Next milestones</h2>
+    <ul>
+      <li>Complete the remaining live device, provider, offline and reboot test matrix.</li>
+      <li>Finish production provider registration and verify the Outlook path end to end.</li>
+      <li>Refresh store assets and complete accessibility and broader device-layout testing.</li>
+      <li>Resolve Play distribution eligibility, signing and privacy-disclosure requirements before any public release.</li>
+    </ul>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#projects">back to projects</a></p>
+  </article>
+
+  <footer><div class="wrap">Message Minder · Android project · Lanky &nbsp;·&nbsp; <a href="../index.html#projects">all projects</a></div></footer>
+</body>
+</html>
