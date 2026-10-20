@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Autopilot — HTB Writeup (Lanky)</title>
   <meta name="description" content="Hack The Box Autopilot: Grommunio and Nextcloud enumeration, Seafile SSRF, Redis cache poisoning, Postfix privilege escalation, IMAP NTLM relay to WS02, credential recovery, Go binary reversing, and Domain Admin access.">
-  <link rel="stylesheet" href="../assets/style.css?v=6">
+  <link rel="stylesheet" href="../assets/style.css?v=10">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#9881;</text></svg>">
 </head>
 <body>
@@ -382,6 +382,13 @@ sudo pkill -f '[i]map_relay_broker.py' 2&gt;/dev/null || true
 pkill -f '[c]hisel server --reverse -p 9002' 2&gt;/dev/null || true</code></pre>
 
 
+
+    <aside class="writeup-evidence" aria-label="Professional capability evidence">
+      <span class="tag">ACS / SFIA technical evidence</span>
+      <p>This authorised lab documents a complete technical solution path: scoping, enumeration, hypothesis testing, exploitation, validation and remediation analysis. It demonstrates technical breadth and written communication; professional responsibility level is evidenced separately through employment episodes and referees.</p>
+      <div class="chips"><span class="chip">VUAS · Vulnerability assessment</span><span class="chip">PENT · Penetration testing</span><span class="chip">SCTY · Information security</span><span class="chip">IAMT · Identity &amp; access</span><span class="chip">SCAD · Security operations</span></div>
+      <p><a href="../professional-evidence.html#technical">View the full professional evidence mapping →</a></p>
+    </aside>
     <section class="hardening-guides" id="hardening-guides">
       <h2><span class="num">◆</span>If this were my environment</h2>
       <p>This chain crossed a web integration, local Redis and Postfix trust boundaries, then used recurring NTLM authentication against a workstation that did not require SMB signing. I would treat it as both an application-security and identity-tiering failure.</p>

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DanglingTree — HTB Writeup (Lanky)</title>
   <meta name="description" content="Hack The Box: DanglingTree — Medium Windows AD. Five identities: Windows Admin Center RCE (CVE-2026-26119), an unauthenticated SmarterMail reset, a mailbox domain-swap, a SAMR password reset, and a dangling ADCS certificate template turned into ESC1 and Domain Admin.">
-  <link rel="stylesheet" href="../assets/style.css?v=6">
+  <link rel="stylesheet" href="../assets/style.css?v=10">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127795;</text></svg>">
 </head>
 <body>
@@ -358,6 +358,13 @@ certipy-ad auth -pfx administrator.pfx -dc-ip &lt;dc-ip&gt;</code></pre>
     </ul>
 
 
+
+    <aside class="writeup-evidence" aria-label="Professional capability evidence">
+      <span class="tag">ACS / SFIA technical evidence</span>
+      <p>This authorised lab documents a complete technical solution path: scoping, enumeration, hypothesis testing, exploitation, validation and remediation analysis. It demonstrates technical breadth and written communication; professional responsibility level is evidenced separately through employment episodes and referees.</p>
+      <div class="chips"><span class="chip">VUAS · Vulnerability assessment</span><span class="chip">PENT · Penetration testing</span><span class="chip">SCTY · Information security</span><span class="chip">IAMT · Identity &amp; access</span><span class="chip">SCAD · Security operations</span></div>
+      <p><a href="../professional-evidence.html#technical">View the full professional evidence mapping →</a></p>
+    </aside>
     <section class="hardening-guides" id="hardening-guides">
       <h2><span class="num">◆</span>If this were my environment</h2>
       <p>The chain used exposed management software, mailbox/domain trust, broad account-reset rights and an unsafe certificate template. I would treat all four as Tier 0 control-plane findings.</p>

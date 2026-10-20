@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MakeSense — HTB Writeup (Lanky)</title>
   <meta name="description" content="Hack The Box: MakeSense — Medium Linux. An OCR web app running as root writes recognised text into its own served docroot, turning a picture of PHP into a root webshell. Plus a patched-by-backport CVE that looked like the answer and wasn't.">
-  <link rel="stylesheet" href="../assets/style.css?v=6">
+  <link rel="stylesheet" href="../assets/style.css?v=10">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128065;</text></svg>">
 </head>
 <body>
@@ -220,6 +220,13 @@ ssh -i ~/.ssh/id_ed25519 root@makesense.htb</code></pre>
     </ul>
 
 
+
+    <aside class="writeup-evidence" aria-label="Professional capability evidence">
+      <span class="tag">ACS / SFIA technical evidence</span>
+      <p>This authorised lab documents a complete technical solution path: scoping, enumeration, hypothesis testing, exploitation, validation and remediation analysis. It demonstrates technical breadth and written communication; professional responsibility level is evidenced separately through employment episodes and referees.</p>
+      <div class="chips"><span class="chip">VUAS · Vulnerability assessment</span><span class="chip">PENT · Penetration testing</span><span class="chip">SCTY · Information security</span><span class="chip">IAMT · Identity &amp; access</span><span class="chip">SCAD · Security operations</span></div>
+      <p><a href="../professional-evidence.html#technical">View the full professional evidence mapping →</a></p>
+    </aside>
     <section class="hardening-guides" id="hardening-guides">
       <h2><span class="num">◆</span>If this were my environment</h2>
       <p>OCR output crossed directly into a root-owned execution path. I would separate untrusted document processing from privileged automation and require an explicit, integrity-checked promotion step.</p>

@@ -523,6 +523,86 @@ article .no { color: var(--amber); }
 .ctrl b { color: var(--fg); }
 .ctrl .stig b { color: var(--amber); }
 
+/* ── Professional experience and ACS evidence ─────────────────────── */
+.experience-summary {
+  margin: 34px 0 10px; padding: 26px; background: var(--bg-card);
+  border: 1px solid var(--border); border-left: 3px solid var(--green); border-radius: 8px;
+}
+.section-kicker, .evidence-kicker {
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 1.2px; color: var(--green); margin-bottom: 7px;
+}
+.experience-summary h2 { margin: 0 0 8px; color: var(--fg-bright); font-size: 24px; }
+.experience-summary > p { max-width: 85ch; color: var(--fg-dim); line-height: 1.7; }
+.experience-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin: 20px 0; }
+.experience-card { padding: 17px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-soft); }
+.experience-card h3 { color: var(--fg-bright); font-size: 16px; margin: 5px 0; }
+.experience-card p { color: var(--fg-dim); font-size: 13px; line-height: 1.6; margin: 10px 0 0; }
+.experience-period { font-family: var(--mono); color: var(--green); font-size: 11px; }
+.experience-org { font-size: 13px; color: var(--fg); }
+.acs-link { color: var(--green); border-color: rgba(34,211,238,.25); }
+
+.evidence-hero { padding: 50px 0 24px; max-width: 900px; }
+.evidence-hero h1 { margin: 0 0 12px; color: var(--fg-bright); font-size: clamp(34px,6vw,54px); letter-spacing: -.035em; }
+.evidence-hero .lead { font-size: 18px; line-height: 1.75; color: var(--fg); max-width: 78ch; }
+.evidence-disclaimer {
+  display: flex; gap: 12px; align-items: flex-start; margin: 24px 0; padding: 16px 18px;
+  background: rgba(245,183,71,.06); border: 1px solid rgba(245,183,71,.32); border-radius: 8px;
+  color: var(--fg-dim); font-size: 14px; line-height: 1.65;
+}
+.evidence-disclaimer strong { color: var(--amber); white-space: nowrap; }
+.evidence-nav { display: flex; gap: 8px; flex-wrap: wrap; margin: 22px 0 8px; }
+.evidence-nav a { font-family: var(--mono); font-size: 12px; color: var(--green); text-decoration: none; border: 1px solid var(--border); border-radius: 7px; padding: 8px 11px; }
+.evidence-nav a:hover { border-color: var(--green-dim); }
+.evidence-section { padding: 34px 0 12px; scroll-margin-top: 90px; }
+.evidence-section > h2 { margin: 0 0 8px; color: var(--fg-bright); font-size: 27px; }
+.evidence-section > p { max-width: 88ch; color: var(--fg-dim); line-height: 1.7; }
+.evidence-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; margin-top: 18px; }
+.evidence-card { padding: 20px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; }
+.evidence-card.primary { border-left: 3px solid var(--green); }
+.evidence-card h3 { color: var(--fg-bright); margin: 4px 0 8px; font-size: 18px; }
+.evidence-card p, .evidence-card li { color: var(--fg-dim); font-size: 14px; line-height: 1.65; }
+.evidence-card ul { padding-left: 20px; margin: 10px 0 0; }
+.sfia-code { font-family: var(--mono); font-size: 11px; color: var(--green); letter-spacing: .08em; }
+.evidence-status { display: inline-block; margin-top: 8px; padding: 3px 8px; font-family: var(--mono); font-size: 10px; color: var(--amber); border: 1px solid rgba(245,183,71,.35); border-radius: 4px; }
+.episode { margin: 18px 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.episode-head { padding: 18px 20px; border-bottom: 1px solid var(--border); background: var(--bg-soft); }
+.episode-head h3 { margin: 3px 0; color: var(--fg-bright); }
+.episode-body { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0; }
+.episode-block { padding: 17px 20px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.episode-block:nth-child(2n) { border-right: 0; }
+.episode-block h4 { margin: 0 0 7px; color: var(--green); font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.episode-block p, .episode-block li { color: var(--fg-dim); font-size: 14px; line-height: 1.65; }
+.episode-block ul { margin: 0; padding-left: 20px; }
+.evidence-table-wrap { overflow-x: auto; margin-top: 18px; border: 1px solid var(--border); border-radius: 8px; }
+.evidence-table { width: 100%; min-width: 760px; border-collapse: collapse; background: var(--bg-card); }
+.evidence-table th, .evidence-table td { text-align: left; vertical-align: top; padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 13px; line-height: 1.55; }
+.evidence-table th { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--green); background: var(--bg-soft); }
+.evidence-table td { color: var(--fg-dim); }
+.evidence-table td strong { color: var(--fg-bright); }
+.evidence-table tr:last-child td { border-bottom: 0; }
+.practice-statement { padding: 24px; border: 1px solid var(--border); border-left: 3px solid var(--green); border-radius: 8px; background: var(--bg-card); }
+.practice-statement p { color: var(--fg-dim); line-height: 1.75; }
+.practice-statement p:last-child { margin-bottom: 0; }
+.evidence-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.writeup-evidence { margin: 42px 0 28px; padding: 18px; border: 1px solid var(--border); border-left: 3px solid var(--cyan); border-radius: 0 8px 8px 0; background: var(--bg-soft); }
+.writeup-evidence .tag { display: block; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--cyan); margin-bottom: 7px; }
+.writeup-evidence p { margin: 6px 0; color: var(--fg-dim); font-size: 14px; line-height: 1.65; }
+.writeup-evidence .chips { margin-top: 12px; }
+@media (max-width: 860px) {
+  .experience-grid, .evidence-grid { grid-template-columns: 1fr; }
+  .episode-body { grid-template-columns: 1fr; }
+  .episode-block { border-right: 0; }
+}
+@media print {
+  .nav, footer, .evidence-nav, .evidence-actions { display: none !important; }
+  body { background: #fff; color: #111; }
+  .wrap { max-width: none; }
+  .evidence-card, .episode, .practice-statement, .evidence-table-wrap { break-inside: avoid; border-color: #bbb; background: #fff; }
+  .evidence-card p, .evidence-card li, .episode-block p, .episode-block li, .practice-statement p, .evidence-table td { color: #222; }
+  .evidence-hero h1, .evidence-section > h2, .evidence-card h3, .episode-head h3 { color: #000; }
+}
+
 
 /* ── Hardening guidance ─────────────────────────────────────────── */
 .hardening-guides { margin-top: 54px; padding-top: 8px; }

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Cohort — HTB Writeup (Lanky)</title>
   <meta name="description" content="Hack The Box: Cohort — Easy Linux. SSRF through a string-match blocklist into an internal marimo notebook, a pre-auth WebSocket RCE (CVE-2026-39987) reached via a wildcard-cert dynamic host, and root through a held, partially-upgraded PackageKit package (CVE-2026-41651).">
-  <link rel="stylesheet" href="../assets/style.css?v=6">
+  <link rel="stylesheet" href="../assets/style.css?v=10">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#128225;</text></svg>">
 </head>
 <body>
@@ -322,6 +322,13 @@ uid=1000(marimo) gid=1000(marimo) euid=0(root) groups=1000(marimo)</code></pre>
     </ul>
 
 
+
+    <aside class="writeup-evidence" aria-label="Professional capability evidence">
+      <span class="tag">ACS / SFIA technical evidence</span>
+      <p>This authorised lab documents a complete technical solution path: scoping, enumeration, hypothesis testing, exploitation, validation and remediation analysis. It demonstrates technical breadth and written communication; professional responsibility level is evidenced separately through employment episodes and referees.</p>
+      <div class="chips"><span class="chip">VUAS · Vulnerability assessment</span><span class="chip">PENT · Penetration testing</span><span class="chip">SCTY · Information security</span><span class="chip">IAMT · Identity &amp; access</span><span class="chip">SCAD · Security operations</span></div>
+      <p><a href="../professional-evidence.html#technical">View the full professional evidence mapping →</a></p>
+    </aside>
     <section class="hardening-guides" id="hardening-guides">
       <h2><span class="num">◆</span>If this were my environment</h2>
       <p>The attack moved from a web SSRF into a development notebook and then through an over-privileged package-management path. I would segment development tooling and make every privileged package action explicit and authenticated.</p>
