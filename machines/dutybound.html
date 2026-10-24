@@ -323,14 +323,66 @@ unsafe eval in apply-duty-rates.sh
         ↓
 root shell → root.txt
 </code></pre>
-<h2><span class="num">08</span>What I would fix</h2>
-<ol>
-<li><strong>Parameterize the audit insert.</strong> Pass every boarding-pass field as a bound value. Treat airline-use data as untrusted even after the mandatory BCBP fields pass validation.</li>
-<li><strong>Remove <code>pg_execute_server_program</code> from the application role.</strong> The checkout role should only have the table privileges it needs. PostgreSQL documents <code>COPY TO PROGRAM</code> as server-side command execution under the database OS account.</li>
-<li><strong>Isolate the kiosk display.</strong> A database service account should not be able to connect to the kiosk user's X server or synthesize input in that session. Replace the legacy shared X11 setup or enforce display authorization and process separation.</li>
-<li><strong>Remove <code>eval</code> from the rate importer.</strong> Validate <code>tax_class</code> against an explicit allowlist and store values as data. Do not let a group-writable file become shell syntax in a root service.</li>
-<li><strong>Reduce service privileges.</strong> The rate import should run with the minimum database and filesystem access needed. A rate-file edit should not lead to root command execution.</li>
-</ol>
+<h2><span class="num">08</span>Preventing the attack chain</h2>
+<p>The fixes have to break each trust boundary. A DISA STIG baseline helps harden the host, accounts, permissions and audit settings, but it does not repair application code that builds SQL strings or evaluates CSV fields as shell commands. I would implement the code changes first, then audit the deployed host against the benchmark for its actual OS release.</p>
+
+<h3>Bind boarding-pass values in the audit query</h3>
+<p>Replace Python string interpolation in <code>record_export_evidence</code> with driver parameters. Keep the SQL structure constant and pass <em>every</em> boarding-pass field as data, including <code>airline_use</code>:</p>
+<pre data-lang="python"><code>cur.execute(
+    """INSERT INTO bp_scan_audit
+       (audit_ref, kiosk_id, ts, pnr, pax_name, carrier, flight_no,
+        dep_julian, origin, dest, ff_carrier, ff_number, raw_len, airline_use)
+       VALUES (%s, %s, now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+    (audit_ref, KIOSK_ID, bp.pnr.strip(), bp.pax_name.rstrip(),
+     bp.carrier.strip(), bp.flight_no.strip(), bp.julian, bp.origin,
+     bp.dest, bp.ff_carrier.strip(), bp.ff_number.strip(), len(raw),
+     bp.airline_use),
+)</code></pre>
+<p>Keep BCBP length and format checks, cap the airline-use field to the allowed size, and return a generic error to the client while retaining detailed diagnostics in protected logs. A regression test should submit a quote and the former stacked-query payload, confirm they cannot change SQL execution, and confirm an ordinary boarding pass still records an audit row. This follows <a href="https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html">OWASP's parameterized-query guidance</a>.</p>
+
+<h3>Remove database server-program execution</h3>
+<p>The checkout role should have only the table privileges needed for the sale and audit workflow. Remove direct and inherited membership in <code>pg_execute_server_program</code>; that predefined role authorizes commands on the database host through <code>COPY ... PROGRAM</code>. Check membership after the change:</p>
+<pre data-lang="sql"><code>REVOKE pg_execute_server_program FROM airsnacks_app;
+SELECT pg_has_role('airsnacks_app', 'pg_execute_server_program', 'MEMBER');
+-- expected: false</code></pre>
+<p>If the check remains true, inspect and remove the grant through a containing role. The application account should not own the database, hold superuser-like roles, or have broad rights over unrelated tables. Verify that checkout still works and that the former <code>COPY TO PROGRAM</code> probe is rejected.</p>
+
+<h3>Isolate the kiosk desktop from service accounts</h3>
+<p>Only the kiosk login should possess the X11 authorization cookie. Keep its <code>XAUTHORITY</code> file private, remove broad <code>xhost</code> entries, and prevent <code>postgres</code> and web-service accounts from joining display <code>:0</code>. X.Org documents that a trusted X client can inject input into other clients, so removing the Ctrl+Alt+T shortcut or <code>xterm</code> alone is only a secondary measure. A separately isolated kiosk session or a compositor with stronger client isolation is preferable.</p>
+<pre data-lang="bash"><code># Check the boundary after changing display authorization:
+sudo -u postgres env DISPLAY=:0 xset q
+# expected: authorization denied, not a successful display report</code></pre>
+
+<h3>Make the rates file data, not root-executed code</h3>
+<p>The kiosk account must not be able to edit or replace the watched CSV. Remove group write permission from both the file <em>and its parent directory</em>; a read-only file inside a writable directory can still be replaced. Keep updates behind an administrator-controlled import path:</p>
+<pre data-lang="bash"><code>sudo chown root:pos-ops /opt/vrs/data /opt/vrs/data/duty-rates.csv
+sudo chmod 0750 /opt/vrs/data
+sudo chmod 0640 /opt/vrs/data/duty-rates.csv
+stat -c '%A %U %G %n' /opt/vrs/data /opt/vrs/data/duty-rates.csv</code></pre>
+<p>Delete <code>eval</code>. Parse exactly three CSV fields, allow only known tax classes, convert percentages to bounded integers, and reject the entire update before modifying the database if any row fails. A Bash implementation can use an associative array after validation:</p>
+<pre data-lang="bash"><code>declare -A duty
+case "$tax_class" in
+  SPIRITS|WINE|BEER|SOFT_DRINKS|SNACKS|CONFECTIONERY|WATER) ;;
+  *) exit 1 ;;
+esac
+[[ "$duty_pct" =~ ^(0|[1-9][0-9]{0,2})$ &amp;&amp; "$vat_pct" =~ ^(0|[1-9][0-9]{0,2})$ ]] || exit 1
+(( duty_pct &lt;= 100 &amp;&amp; vat_pct &lt;= 100 )) || exit 1
+duty["$tax_class"]=$duty_pct</code></pre>
+<p>Run parsing and validation under a dedicated unprivileged service account. After separating the privileged restart or deployment step, restrict the systemd unit with settings such as <code>NoNewPrivileges=yes</code>, <code>ProtectSystem=strict</code>, <code>ProtectHome=yes</code> and narrow write paths. Review the revised unit with <code>systemd-analyze security vrs-duty-apply.service</code>. Test that a semicolon-bearing tax class is rejected without executing and that the original rate file imports successfully.</p>
+
+<h3>Use the matching STIG as a measured host baseline</h3>
+<p>First identify the distribution and release with <code>cat /etc/os-release</code>. For a supported Ubuntu release with Ubuntu Pro and Ubuntu Security Guide installed, Canonical documents <code>sudo usg audit disa_stig</code>, which produces HTML and XML findings. Generate a tailoring file for site-specific values, test remediation in staging, then re-audit. Record exceptions and operational impact rather than claiming STIG compliance from a script run alone. The <a href="https://public.cyber.mil/stigs/downloads/">DISA STIG library</a> is the source for the release-matched benchmark.</p>
+<pre data-lang="bash"><code>cat /etc/os-release
+sudo usg audit disa_stig
+sudo usg generate-tailoring disa_stig tailor.xml
+sudo usg audit --tailoring-file tailor.xml</code></pre>
+<table>
+  <tr><th>Benchmark or guide</th><th>What to assess here</th><th>Evidence to retain</th></tr>
+  <tr><td>DISA Application Security and Development STIG</td><td>Audit input handling, SQL construction, error exposure and application privileges against the current application benchmark.</td><td>Reviewed query change and passing injection regression tests.</td></tr>
+  <tr><td>Release-matched Ubuntu DISA STIG</td><td>Audit service accounts, permissions, system audit configuration and host hardening after confirming the actual OS release.</td><td>USG HTML/XML report, tailoring decisions and corrected file modes.</td></tr>
+  <tr><td>Applicable database STIG and PostgreSQL vendor guidance</td><td>Review role grants and database audit configuration for the installed PostgreSQL version.</td><td>Role inventory and a false <code>pg_has_role</code> result for server-program execution.</td></tr>
+</table>
+<p>The final evidence should include the code review and regression tests, PostgreSQL role check, denied X11 connection, corrected file modes, a passing rate-import test, the revised systemd exposure report, and the STIG audit results. Those checks demonstrate that the exploit chain was broken while the checkout still works.</p>
 <h2><span class="num">09</span>ACS certification evidence</h2>
 <p>This authorised lab records a complete testing cycle: scoping, enumeration, hypothesis testing, exploitation, privilege escalation, validation, cleanup and clear reporting. The table below is an indicative mapping of work shown on this page to SFIA skills. It does not claim a particular SFIA level or replace evidence of workplace responsibility.</p>
 <table>
@@ -344,6 +396,11 @@ root shell → root.txt
 <ul>
 <li><a href="https://www.iata.org/contentassets/1dccc9ed041b4f3bbdcf8ee8682e75c4/2021_03_02-bcbp-implementation-guide-version-7-.pdf">IATA BCBP Implementation Guide, version 7</a></li>
 <li><a href="https://www.postgresql.org/docs/current/sql-copy.html">PostgreSQL <code>COPY</code> documentation</a></li>
+<li><a href="https://www.postgresql.org/docs/current/predefined-roles.html">PostgreSQL predefined roles and server-program privilege</a></li>
+<li><a href="https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html">OWASP SQL Injection Prevention Cheat Sheet</a> and <a href="https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html">OS Command Injection Defense</a></li>
+<li><a href="https://wiki.freedesktop.org/xorg/guide/communication/">X.Org client security model</a> and <a href="https://www.freedesktop.org/software/systemd/man/258/systemd.exec.html">systemd service restrictions</a></li>
+<li><a href="https://public.cyber.mil/stigs/downloads/">DISA STIG library</a> and <a href="https://documentation.ubuntu.com/security/compliance/usg/disa-audit/">Canonical Ubuntu STIG auditing guide</a></li>
+<li><a href="https://documentation.ubuntu.com/security/compliance/usg/disa-customize/">Canonical guidance on tailoring a DISA STIG profile</a></li>
 <li><a href="https://www.acs.org.au/professionalrecognition/certification-landing-page.html">ACS certification requirements</a></li>
 </ul>
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
