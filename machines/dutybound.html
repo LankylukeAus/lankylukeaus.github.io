@@ -331,10 +331,20 @@ root shell → root.txt
 <li><strong>Remove <code>eval</code> from the rate importer.</strong> Validate <code>tax_class</code> against an explicit allowlist and store values as data. Do not let a group-writable file become shell syntax in a root service.</li>
 <li><strong>Reduce service privileges.</strong> The rate import should run with the minimum database and filesystem access needed. A rate-file edit should not lead to root command execution.</li>
 </ol>
+<h2><span class="num">09</span>ACS certification evidence</h2>
+<p>This authorised lab records a complete testing cycle: scoping, enumeration, hypothesis testing, exploitation, privilege escalation, validation, cleanup and clear reporting. The table below is an indicative mapping of work shown on this page to SFIA skills. It does not claim a particular SFIA level or replace evidence of workplace responsibility.</p>
+<table>
+  <tr><th>SFIA skill</th><th>Evidence in this writeup</th></tr>
+  <tr><td><strong><a href="https://sfia-online.org/en/sfia-9/skills/penetration-testing">PENT — Penetration testing</a></strong></td><td>Constructed a valid boarding pass, proved SQL injection and database command execution, crossed the kiosk session boundary, and validated root access.</td></tr>
+  <tr><td><strong><a href="https://sfia-online.org/en/sfia-9/skills/vulnerability-assessment">VUAS — Vulnerability assessment</a></strong></td><td>Traced each weakness to its cause: string-built SQL, an excessive database role, shared X11 access, and shell evaluation of group-writable data.</td></tr>
+  <tr><td><strong><a href="https://sfia-online.org/en/sfia-9/skills/information-security">SCTY — Information security</a></strong></td><td>Translated the attack path into specific controls for input handling, database privileges, desktop isolation, importer validation and service privilege.</td></tr>
+</table>
+<p>The commands, error responses, source-code observations and cleanup steps make the findings reproducible. The defensive section shows how I connected technical failures to practical controls. ACS certification also assesses experience, qualifications and professional practice; workplace evidence and referees establish the level of responsibility that a training lab cannot show on its own.</p>
 <h2>References</h2>
 <ul>
 <li><a href="https://www.iata.org/contentassets/1dccc9ed041b4f3bbdcf8ee8682e75c4/2021_03_02-bcbp-implementation-guide-version-7-.pdf">IATA BCBP Implementation Guide, version 7</a></li>
 <li><a href="https://www.postgresql.org/docs/current/sql-copy.html">PostgreSQL <code>COPY</code> documentation</a></li>
+<li><a href="https://www.acs.org.au/professionalrecognition/certification-landing-page.html">ACS certification requirements</a></li>
 </ul>
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to writeups</a></p>
   </article>
