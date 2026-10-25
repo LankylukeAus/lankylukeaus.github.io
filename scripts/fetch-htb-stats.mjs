@@ -91,7 +91,7 @@ if (active?.id) {
   const d = rank?.data ?? {};
   htb.tier = pick(d.tier, d.league, htb.tier);
   htb.points = pick(d.total_season_points, d.points, htb.points);
-  htb.global = pick(d.rank != null ? `#${d.rank}` : undefined, htb.global);
+  htb.season_rank = pick(d.rank != null ? `#${d.rank}` : undefined, htb.season_rank);
   if (d.flags_owned != null && d.total_flags != null) {
     htb.flags = `${d.flags_owned}/${d.total_flags}`;
   }

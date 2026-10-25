@@ -1,11 +1,12 @@
 {
-  "updated": "2026-10-25T00:54:55.000Z",
+  "updated": "2026-10-25T01:01:48.000Z",
   "_note": "Fallback profile values. Archived Season 11 results are displayed separately in index.html and are not overwritten by live season data.",
   "htb": {
     "subscription": "Pro",
-    "level": 64,
+    "level": 69,
     "hacker_rank": "Master",
-    "machines": 18
+    "machines": 18,
+    "global": "#794"
   },
   "_diag": {
     "status": "Fallback machine count updated 2026-10-25; automated HTB refresh remains configured."

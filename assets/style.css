@@ -344,6 +344,11 @@ a.badge-chip:hover { border-color: var(--green-dim); transform: translateY(-1px)
 .lab-h { font-family: var(--mono); font-size: 14px; color: var(--fg-bright); letter-spacing: .5px; margin: 36px 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 .lab-sub { font-family: var(--mono); font-size: 12px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 1px; margin: 26px 0 12px; }
 .lab-season-h { font-family: var(--mono); font-size: 12px; color: var(--green); text-transform: uppercase; letter-spacing: 1px; margin: 22px 0 12px; }
+.lab-season-title { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 22px 0 12px; }
+.lab-season-title .lab-season-h { margin: 0; }
+.lab-season-ranks { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.lab-season-ranks .pill { text-decoration: none; }
+.lab-season-asof { color: var(--fg-dim); font: 11px var(--mono); }
 .acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 .act { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12.5px; text-decoration: none; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); color: var(--green); background: var(--bg-soft); transition: border-color .12s ease; }
 .act:hover { border-color: var(--green-dim); }
