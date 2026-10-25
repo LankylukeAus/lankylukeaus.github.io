@@ -1,19 +1,13 @@
 {
-  "updated": "2026-09-01T21:31:53.033Z",
-  "_note": "Verified fallback values updated after completing BlockSynergy. The legacy HTB stats API may reject personal tokens, so these values remain available when live refresh is unavailable.",
+  "updated": "2026-10-25T00:54:55.000Z",
+  "_note": "Fallback profile values. Archived Season 11 results are displayed separately in index.html and are not overwritten by live season data.",
   "htb": {
     "subscription": "Pro",
     "level": 64,
     "hacker_rank": "Master",
-    "season_name": "Season 11",
-    "tier": "Silver",
-    "global": "#2900",
-    "machines": 13,
-    "points": 325,
-    "flags": "10/26",
-    "subline": "<b>◆ Master</b> · Level 64 · Season 11 Silver"
+    "machines": 18
   },
   "_diag": {
-    "status": "Fallback updated 2026-09-02 after BlockSynergy completion; automated HTB refresh remains configured."
+    "status": "Fallback machine count updated 2026-10-25; automated HTB refresh remains configured."
   }
 }
