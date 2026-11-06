@@ -24,7 +24,7 @@ html { scroll-behavior: smooth; }
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: radial-gradient(circle at 80% 2%, rgba(34,211,238,.055), transparent 34rem), var(--bg);
   color: var(--fg);
   font-family: var(--sans);
   line-height: 1.7;
@@ -211,6 +211,30 @@ footer a { color: var(--green-dim); text-decoration: none; }
 .btn:hover { border-color: var(--green-dim); color: var(--green); }
 .btn.primary { background: var(--green); color: #0b0d14; border-color: var(--green); font-weight: 700; }
 .btn.primary:hover { background: var(--green-dim); color: #0b0d14; }
+
+/* Profile opening */
+.profile-hero { padding: 48px 0 22px; display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 42px; align-items: center; }
+.profile-hero-copy { min-width: 0; }
+.profile .profile-name { font-size: clamp(34px, 4.6vw, 50px); line-height: 1.1; letter-spacing: -.035em; margin: 0 0 12px; }
+.profile-name span { display: inline-block; color: var(--green); font-family: var(--mono); font-size: .42em; font-weight: 500; letter-spacing: 0; white-space: nowrap; }
+.profile-hero .tagline { color: var(--fg-bright); font-size: 20px; font-weight: 600; }
+.profile-hero .bio { color: var(--fg); max-width: 66ch; }
+.hero-art { display: block; width: 100%; max-width: 270px; height: auto; border-radius: 15px; border: 1px solid rgba(34,211,238,.18); box-shadow: 0 16px 56px rgba(0,0,0,.28), 0 0 32px rgba(34,211,238,.09); }
+.credential-strip { display: flex; flex-wrap: wrap; gap: 9px; margin: 22px 0; }
+.credential-strip > span { display: inline-flex; align-items: baseline; gap: 7px; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--green-dim); color: var(--green); background: rgba(34,211,238,.055); font-family: var(--mono); font-size: 12px; font-weight: 700; }
+.credential-strip small { color: var(--fg-dim); font-size: 10px; font-weight: 400; }
+.hero-actions { margin-bottom: 10px; }
+.secondary-links .btn { padding: 6px 10px; background: transparent; font-size: 11px; color: var(--fg-dim); }
+.secondary-links .btn:hover { color: var(--green); }
+.cert-mark { display: grid; place-items: center; width: 92px; height: 92px; margin: 0 auto; border-radius: 10px; border: 1px solid var(--green-dim); background: linear-gradient(145deg, #0e2630, #10161c); color: var(--green); font: 700 20px var(--mono); letter-spacing: .06em; }
+@media (max-width: 760px) {
+  .profile-hero { grid-template-columns: 1fr; gap: 20px; padding-top: 34px; }
+  .hero-art { grid-row: 1; width: 145px; }
+}
+@media (max-width: 460px) {
+  .profile .profile-name span { display: block; margin-top: 6px; }
+  .credential-strip > span { width: 100%; justify-content: space-between; }
+}
 
 /* HTB synced stats card */
 .htb-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 22px; }
