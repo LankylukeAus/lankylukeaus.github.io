@@ -423,6 +423,31 @@ xp_cmdshell             0
 <li><a href="https://learn.microsoft.com/sql/relational-databases/security/authentication-access/credentials-database-engine">Microsoft Learn - SQL Server credentials</a></li>
 </ul>
 
+
+    <section class="hardening-guides" id="hardening-guides">
+      <h2><span class="num">12</span>If this were my environment</h2>
+      <p>The strongest fixes break the trust boundaries used in this walkthrough: keep authorization outside the model, prevent the application login from becoming a SQL administrator, and separate database jobs from privileged Windows backup accounts.</p>
+      <h3>Controls that break this attack chain</h3>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Attack step</th><th>Hardening action</th><th>Implementation guide</th></tr></thead>
+        <tbody>
+          <tr><td>Prompt injection and support-code disclosure</td><td>Remove privileged override codes from prompts. Authenticate and authorize support actions in application code. Give the model narrowly scoped tools with validated parameters; do not let it submit arbitrary SQL. Prompt filtering alone cannot enforce access control.</td><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html" target="_blank" rel="noopener">OWASP: LLM Prompt Injection Prevention</a></td></tr>
+          <tr><td>Read-only login impersonates a sysadmin</td><td>Remove the unnecessary IMPERSONATE grant from svc_tracer_ro to svc_reports. Review effective permissions, role memberships and other impersonation paths. Restrict the application identity to the baggage data and operations it actually needs.</td><td><a href="https://learn.microsoft.com/en-us/sql/t-sql/statements/execute-as-transact-sql" target="_blank" rel="noopener">Microsoft: EXECUTE AS and required permissions</a><br><a href="https://learn.microsoft.com/en-us/sql/relational-databases/security/securing-sql-server" target="_blank" rel="noopener">Microsoft: Securing SQL Server</a></td></tr>
+          <tr><td>SQL administration becomes OS command execution</td><td>Keep xp_cmdshell disabled unless a documented dependency requires it. Remove the application's path to sysadmin and run SQL services with minimal Windows rights. Disabling xp_cmdshell alone is insufficient here: the compromised sysadmin context enabled it again.</td><td><a href="https://learn.microsoft.com/en-us/sql/database-engine/configure-windows/xp-cmdshell-server-configuration-option" target="_blank" rel="noopener">Microsoft: xp_cmdshell configuration</a></td></tr>
+          <tr><td>SQL Agent credential exposes a backup account</td><td>Use a dedicated proxy identity with only the permissions needed by the archive step. Remove unnecessary Backup Operators and Remote Management Users membership, restrict proxy use, and rotate the exposed credential after fixing the access path. Credential encryption does not protect a secret from every sufficiently privileged SQL and local compromise.</td><td><a href="https://learn.microsoft.com/en-us/ssms/agent/implement-sql-server-agent-security" target="_blank" rel="noopener">Microsoft: SQL Server Agent security</a><br><a href="https://learn.microsoft.com/en-us/sql/relational-databases/security/authentication-access/credentials-database-engine" target="_blank" rel="noopener">Microsoft: Database Engine credentials</a></td></tr>
+          <tr><td>Backup semantics bypass Administrator file permissions</td><td>Assign SeBackupPrivilege and SeRestorePrivilege only where operationally required. Separate backup identities from interactive administration and allow WinRM only for approved administrators from management networks. Stronger file ACLs alone do not stop a token exercising backup rights.</td><td><a href="https://learn.microsoft.com/en-us/windows/security/threat-protection/security-policy-settings/back-up-files-and-directories" target="_blank" rel="noopener">Microsoft: Back up files and directories policy</a></td></tr>
+        </tbody>
+      </table>
+      </div>
+      <h3>Hardening baselines</h3>
+      <div class="guide-grid">
+        <a class="guide-card" href="https://www.cisecurity.org/benchmark/microsoft_sql_server" target="_blank" rel="noopener"><span class="guide-source">CIS</span><strong>Microsoft SQL Server Benchmarks</strong><span>Choose the benchmark matching the deployed SQL Server version; use it to review instance configuration, access and auditing.</span></a>
+        <a class="guide-card" href="https://www.cyber.mil/stigs/downloads/" target="_blank" rel="noopener"><span class="guide-source">DISA</span><strong>SQL Server and Windows STIGs</strong><span>Select the applicable database and Windows product checklists for prescriptive hardening and documented exceptions.</span></a>
+      </div>
+      <div class="callout hardening-note"><span class="tag">Verify the fix</span>In a test environment, confirm that the chatbot cannot invoke privileged actions, the application login cannot impersonate svc_reports or enable xp_cmdshell, and the archive identity cannot open a WinRM session or read protected files using backup mode. Validate required backup jobs still work. Alert on SQL configuration changes, privileged login impersonation, SQL service child processes and changes to privileged local groups.</div>
+    </section>
+
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to Hacking Lab</a></p>
   </article>
 
