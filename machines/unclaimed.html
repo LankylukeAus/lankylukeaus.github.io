@@ -458,6 +458,107 @@ xp_cmdshell             0
 <div class="callout hardening-note"><span class="tag">Validation</span>Retest the original path: the chatbot must reject unauthorized tool operations, svc_tracer_ro must not become svc_reports, and the archive identity must not read protected files using backup mode. Verify necessary archive jobs still work. Disabling xp_cmdshell alone does not contain a compromised SQL sysadmin; stricter file ACLs alone do not contain a token retaining backup privilege.</div>
 </section>
 
+
+<section class="hardening-guides" id="siem-detections">
+<h2><span class="num">13</span>Detecting the attack: Splunk and Elastic</h2>
+<p>These are analyst-authored starting searches for the observed behavior, not vendor-certified or environment-tested detection rules. Configure the required telemetry and validate against authorized test events before scheduling alerts.</p>
+<h3>Logging and field prerequisites</h3>
+<p>Splunk examples use placeholder indexes <code>windows</code>, <code>sql_audit</code> and <code>app_security</code>. Replace them with your indexes, constrain the appropriate source types and confirm field extractions. Windows process searches specifically use Sysmon Event 1 fields; they are not drop-in searches for Security 4688. Normalize EventCode to numeric values and preserve full process command lines.</p>
+<p>Elastic examples use <strong>EQL</strong> (Elastic Security Event correlation rules), not KQL or Lucene. Select only the intended endpoint, Windows, application and SQL data streams. Process searches require ECS <code>event.category</code>, <code>event.type</code>, <code>process.name</code>, <code>process.parent.name</code>, <code>process.args</code> and <code>host.id</code>. Windows event codes are strings. Import the Windows event-data fields shown in the searches.</p>
+<p><strong>Custom ingestion contract:</strong> <code>unclaimed.app_security</code> and <code>unclaimed.sql_audit</code> are proposed <code>event.dataset</code> values, not built-in integrations. Map application prompts to keyword/wildcard field <code>unclaimed.prompt_text</code> and captured SQL text to <code>unclaimed.sql_statement</code>. Populate <code>url.path</code>, <code>source.ip</code>, <code>@timestamp</code> and host/user identity where available. Provide equivalent <code>prompt_text</code>, <code>request_path</code> and <code>statement</code> fields in Splunk. Use suitable field lengths and access controls; these logs can contain sensitive data.</p>
+<h3>Splunk SPL searches</h3>
+<div style="overflow-x:auto"><table><thead><tr><th scope="col">Detection</th><th scope="col">Copyable search</th></tr></thead><tbody><tr><td><a href="#d01">D01: Prompt injection against /ask</a></td><td><pre data-lang="spl"><code>index=app_security earliest=-15m request_path=&quot;/ask&quot;
+| where match(prompt_text,&quot;(?i)(ignore.{0,40}previous instructions|system prompt|operator.only|support override)&quot;)
+| table _time host request_id src_ip request_path prompt_text</code></pre></td></tr>
+<tr><td><a href="#d02">D02: SQL impersonation or dangerous execution</a></td><td><pre data-lang="spl"><code>index=sql_audit earliest=-15m
+| where match(statement,&quot;(?is)(execute|exec)\\s+as\\s+login|xp_cmdshell|sp_configure.{0,100}(xp_cmdshell|show advanced options)&quot;)
+| table _time host session_server_principal_name server_principal_name succeeded statement</code></pre></td></tr>
+<tr><td><a href="#d03">D03: SQL Server starts a shell</a></td><td><pre data-lang="spl"><code>index=windows earliest=-15m EventCode=1
+| where match(ParentImage,&quot;(?i)(sqlservr|sqlagent)\\.exe    <p style="margin-top:40px;">quot;)
+    AND match(Image,&quot;(?i)(cmd|powershell|pwsh)\\.exe    <p style="margin-top:40px;">quot;)
+| table _time host User ParentImage Image CommandLine ProcessGuid ParentProcessGuid</code></pre></td></tr>
+<tr><td><a href="#d04">D04: Encoded PowerShell or TCP callback</a></td><td><pre data-lang="spl"><code>index=windows earliest=-15m
+| where (EventCode=1
+    AND match(Image,&quot;(?i)(powershell|pwsh)\\.exe    <p style="margin-top:40px;">quot;)
+    AND match(CommandLine,&quot;(?i)-(enc|encodedcommand)\\b&quot;))
+  OR (EventCode=4104
+    AND match(ScriptBlockText,&quot;(?i)System\\.Net\\.Sockets\\.TCPClient&quot;))
+| table _time host User Image CommandLine ScriptBlockText</code></pre></td></tr>
+<tr><td><a href="#d05">D05: SQL credential-recovery tooling</a></td><td><pre data-lang="spl"><code>(index=windows EventCode=4104) OR index=sql_audit
+| eval evidence=coalesce(ScriptBlockText,statement)
+| where match(evidence,&quot;(?i)Get-MSSQLCredentialPasswords|sys\\.sysobjvalues&quot;)
+| table _time host User server_principal_name evidence</code></pre></td></tr>
+<tr><td><a href="#d06">D06: Remote commands through WinRM</a></td><td><pre data-lang="spl"><code>index=windows earliest=-15m EventCode=1
+| where match(ParentImage,&quot;(?i)wsmprovhost\\.exe    <p style="margin-top:40px;">quot;)
+| table _time host User ParentImage Image CommandLine ProcessGuid ParentProcessGuid</code></pre></td></tr>
+<tr><td><a href="#d07">D07: Robocopy requests backup mode</a></td><td><pre data-lang="spl"><code>index=windows earliest=-15m EventCode=1
+| where match(Image,&quot;(?i)robocopy\\.exe    <p style="margin-top:40px;">quot;)
+    AND match(CommandLine,&quot;(?i)(^|\\s)/(b|zb)(\\s|$)&quot;)
+| table _time host User Image CommandLine ProcessGuid</code></pre></td></tr>
+<tr><td><a href="#d08">D08: Backup privilege on a new logon</a></td><td><pre data-lang="spl"><code>index=windows earliest=-15m EventCode=4672
+| where match(PrivilegeList,&quot;SeBackupPrivilege|SeRestorePrivilege&quot;)
+| table _time host SubjectUserName SubjectDomainName SubjectLogonId PrivilegeList</code></pre></td></tr></tbody></table></div>
+<h3>Elastic EQL searches</h3>
+<div style="overflow-x:auto"><table><thead><tr><th scope="col">Detection</th><th scope="col">Copyable search</th></tr></thead><tbody><tr><td><a href="#d01">D01: Prompt injection against /ask</a></td><td><pre data-lang="eql"><code>any where event.dataset == &quot;unclaimed.app_security&quot;
+  and url.path == &quot;/ask&quot;
+  and unclaimed.prompt_text : (
+    &quot;*ignore*previous instructions*&quot;, &quot;*system prompt*&quot;,
+    &quot;*operator-only*&quot;, &quot;*support override*&quot;
+  )</code></pre></td></tr>
+<tr><td><a href="#d02">D02: SQL impersonation or dangerous execution</a></td><td><pre data-lang="eql"><code>any where event.dataset == &quot;unclaimed.sql_audit&quot;
+  and unclaimed.sql_statement : (
+    &quot;*EXECUTE AS LOGIN*&quot;, &quot;*EXEC AS LOGIN*&quot;,
+    &quot;*xp_cmdshell*&quot;, &quot;*sp_configure*show advanced options*&quot;
+  )</code></pre></td></tr>
+<tr><td><a href="#d03">D03: SQL Server starts a shell</a></td><td><pre data-lang="eql"><code>process where event.type == &quot;start&quot;
+  and process.parent.name : (&quot;sqlservr.exe&quot;, &quot;sqlagent.exe&quot;)
+  and process.name : (&quot;cmd.exe&quot;, &quot;powershell.exe&quot;, &quot;pwsh.exe&quot;)</code></pre></td></tr>
+<tr><td><a href="#d04">D04: Encoded PowerShell or TCP callback</a></td><td><pre data-lang="eql"><code>any where
+  (event.category == &quot;process&quot; and event.type == &quot;start&quot;
+    and process.name : (&quot;powershell.exe&quot;, &quot;pwsh.exe&quot;)
+    and process.args : (&quot;-enc&quot;, &quot;-EncodedCommand&quot;))
+  or (event.code == &quot;4104&quot;
+    and winlog.event_data.ScriptBlockText :
+      &quot;*System.Net.Sockets.TCPClient*&quot;)</code></pre></td></tr>
+<tr><td><a href="#d05">D05: SQL credential-recovery tooling</a></td><td><pre data-lang="eql"><code>any where
+  (event.code == &quot;4104&quot;
+    and winlog.event_data.ScriptBlockText :
+      (&quot;*Get-MSSQLCredentialPasswords*&quot;, &quot;*sys.sysobjvalues*&quot;))
+  or (event.dataset == &quot;unclaimed.sql_audit&quot;
+    and unclaimed.sql_statement : &quot;*sys.sysobjvalues*&quot;)</code></pre></td></tr>
+<tr><td><a href="#d06">D06: Remote commands through WinRM</a></td><td><pre data-lang="eql"><code>process where event.type == &quot;start&quot;
+  and process.parent.name : &quot;wsmprovhost.exe&quot;</code></pre></td></tr>
+<tr><td><a href="#d07">D07: Robocopy requests backup mode</a></td><td><pre data-lang="eql"><code>process where event.type == &quot;start&quot;
+  and process.name : &quot;robocopy.exe&quot;
+  and process.args : (&quot;/B&quot;, &quot;/ZB&quot;)</code></pre></td></tr>
+<tr><td><a href="#d08">D08: Backup privilege on a new logon</a></td><td><pre data-lang="eql"><code>any where event.code == &quot;4672&quot;
+  and winlog.event_data.PrivilegeList :
+    (&quot;*SeBackupPrivilege*&quot;, &quot;*SeRestorePrivilege*&quot;)</code></pre></td></tr></tbody></table></div>
+<h3>Detection coverage and tuning</h3>
+<div style="overflow-x:auto"><table><thead><tr><th scope="col">ID / behavior</th><th scope="col">Telemetry required</th><th scope="col">Interpretation and tuning</th></tr></thead><tbody>
+<tr id="d01"><td>D01: Prompt injection against /ask</td><td>Custom application security events: request_path and prompt_text. Log only approved, access-controlled diagnostic content; ordinary access logs lack prompt bodies.</td><td>Text indicators are a hunt, not a reliable prompt-injection classifier. Encodings and paraphrases evade them; legitimate testing can match.</td></tr>
+<tr id="d02"><td>D02: SQL impersonation or dangerous execution</td><td>SQL Server Audit plus a statement-producing collection path. Enable SERVER_PRINCIPAL_IMPERSONATION_GROUP for server impersonation; separately configure and test capture of relevant executed statements (Audit/Extended Events). Not every statement is logged by one action group.</td><td>A hit means a suspicious statement was observed, not necessarily executed successfully. Impersonation records and captured batches can differ. Validate the actual captured statement text.</td></tr>
+<tr id="d03"><td>D03: SQL Server starts a shell</td><td>Sysmon Event 1 with Image, ParentImage, CommandLine and User in Splunk; ECS process start events with process.parent.name in Elastic.</td><td>Matches direct children only. SQL Agent jobs can legitimately launch commands. Investigate the parent tree, proxy identity and job history.</td></tr>
+<tr id="d04"><td>D04: Encoded PowerShell or TCP callback</td><td>Sysmon Event 1 for command lines; PowerShell Operational Event 4104 with extracted ScriptBlockText. Elastic needs ECS process events and winlog.event_data.ScriptBlockText.</td><td>Encoded arguments alone do not expose decoded payloads. Script-block capture provides a second view; fragmented events require reassembly for complete script analysis.</td></tr>
+<tr id="d05"><td>D05: SQL credential-recovery tooling</td><td>PowerShell Event 4104 with script content, or collected SQL statement events. Elastic uses the custom SQL mapping described below.</td><td>Tool-name and internal-object indicators can be renamed or hidden. The DATALENGTH fix itself is not malicious. Administrative diagnostics may access the same objects.</td></tr>
+<tr id="d06"><td>D06: Remote commands through WinRM</td><td>Sysmon Event 1 / ECS process starts. Correlate with Security 4624 network logons and WinRM Operational records for source and session context.</td><td>wsmprovhost.exe is legitimate WinRM infrastructure. Direct-child matching can miss commands further down the process tree and PowerShell operations executed in-process.</td></tr>
+<tr id="d07"><td>D07: Robocopy requests backup mode</td><td>Sysmon Event 1 / ECS process starts with full arguments. Review User and destination, and correlate with privileged logons.</td><td>/B or /ZB indicates requested backup behavior; it does not prove the copy succeeded or that backup privilege was exercised. Approved backup tasks can match.</td></tr>
+<tr id="d08"><td>D08: Backup privilege on a new logon</td><td>Windows Security Event 4672: PrivilegeList, SubjectUserName and SubjectLogonId in Splunk; winlog.event_data equivalents in Elastic. Enable Audit Special Logon.</td><td>4672 reports assignment of privileges to a new logon, not use of those privileges. Correlate SubjectLogonId to the 4624 TargetLogonId on the same host and then examine D06/D07.</td></tr>
+</tbody></table></div>
+<p>Start with a 15-minute hunting window; D05 intentionally uses the selected search time range, so set it explicitly in Splunk. For scheduled rules, use a short interval with overlap appropriate to ingestion delay, then deduplicate on event identity. Tune known jobs and approved administrators using host, identity and job context rather than suppressing all service-account activity. EQL examples are single-event rules, not a correlation of the full chain.</p>
+<div class="callout"><span class="tag">Confirm detection, not just query results</span>Generate a benign test for each data source, inspect the event fields, verify the expected search hit, and test representative legitimate jobs. No results can mean missing telemetry. Do not treat absence of alerts as proof that this attack is blocked.</div>
+<h3>Logging and query references</h3>
+<ul>
+<li><a href="https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon" target="_blank" rel="noopener">Microsoft Sysmon: process and event collection</a></li>
+<li><a href="https://learn.microsoft.com/en-us/sql/relational-databases/security/auditing/sql-server-audit-action-groups-and-actions" target="_blank" rel="noopener">Microsoft SQL Server Audit action groups</a></li>
+<li><a href="https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_logging_windows" target="_blank" rel="noopener">Microsoft PowerShell logging</a></li>
+<li><a href="https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4672" target="_blank" rel="noopener">Microsoft Security Event 4672</a></li>
+<li><a href="https://www.elastic.co/docs/reference/query-languages/eql/eql-syntax" target="_blank" rel="noopener">Elastic EQL syntax reference</a></li>
+<li><a href="https://www.elastic.co/docs/solutions/security/detect-and-alert/eql" target="_blank" rel="noopener">Elastic event correlation rule setup</a></li>
+<li><a href="https://lantern.splunk.com/Security_Use_Cases/Compliance/Recognizing_improper_use_of_system_administration_tools/Process_creation_events" target="_blank" rel="noopener">Splunk process-creation field guidance (Security 4688 alternative)</a></li>
+</ul>
+</section>
+
     <p style="margin-top:40px;"><a class="back" href="../index.html#lab">back to Hacking Lab</a></p>
   </article>
 
