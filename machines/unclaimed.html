@@ -48,6 +48,7 @@
     </div>
 
     <p>This walkthrough records the complete path to both flags, the evidence for each step, failed approaches and the final cleanup checks.</p>
+<nav class="callout" aria-label="Write-up sections"><span class="tag">Jump to section</span><a href="#overview">Walkthrough</a> &nbsp;|&nbsp; <a href="#hardening-guides">Hardening tables: DISA, CIS and OWASP</a> &nbsp;|&nbsp; <a href="#siem-detections">Splunk and Elastic searches</a></nav>
 <h2 id="overview">Overview</h2>
 <table>
 <thead>
@@ -474,12 +475,12 @@ xp_cmdshell             0
 | where match(statement,&quot;(?is)(execute|exec)\\s+as\\s+login|xp_cmdshell|sp_configure.{0,100}(xp_cmdshell|show advanced options)&quot;)
 | table _time host session_server_principal_name server_principal_name succeeded statement</code></pre></td></tr>
 <tr><td><a href="#d03">D03: SQL Server starts a shell</a></td><td><pre data-lang="spl"><code>index=windows earliest=-15m EventCode=1
-| where match(ParentImage,&quot;(?i)(sqlservr|sqlagent)\\.exe    <p style="margin-top:40px;">quot;)
-    AND match(Image,&quot;(?i)(cmd|powershell|pwsh)\\.exe    <p style="margin-top:40px;">quot;)
+| where match(ParentImage,&quot;(?i)(sqlservr|sqlagent)\\.exe$&quot;)
+    AND match(Image,&quot;(?i)(cmd|powershell|pwsh)\\.exe$&quot;)
 | table _time host User ParentImage Image CommandLine ProcessGuid ParentProcessGuid</code></pre></td></tr>
 <tr><td><a href="#d04">D04: Encoded PowerShell or TCP callback</a></td><td><pre data-lang="spl"><code>index=windows earliest=-15m
 | where (EventCode=1
-    AND match(Image,&quot;(?i)(powershell|pwsh)\\.exe    <p style="margin-top:40px;">quot;)
+    AND match(Image,&quot;(?i)(powershell|pwsh)\\.exe$&quot;)
     AND match(CommandLine,&quot;(?i)-(enc|encodedcommand)\\b&quot;))
   OR (EventCode=4104
     AND match(ScriptBlockText,&quot;(?i)System\\.Net\\.Sockets\\.TCPClient&quot;))
@@ -489,10 +490,10 @@ xp_cmdshell             0
 | where match(evidence,&quot;(?i)Get-MSSQLCredentialPasswords|sys\\.sysobjvalues&quot;)
 | table _time host User server_principal_name evidence</code></pre></td></tr>
 <tr><td><a href="#d06">D06: Remote commands through WinRM</a></td><td><pre data-lang="spl"><code>index=windows earliest=-15m EventCode=1
-| where match(ParentImage,&quot;(?i)wsmprovhost\\.exe    <p style="margin-top:40px;">quot;)
+| where match(ParentImage,&quot;(?i)wsmprovhost\\.exe$&quot;)
 | table _time host User ParentImage Image CommandLine ProcessGuid ParentProcessGuid</code></pre></td></tr>
 <tr><td><a href="#d07">D07: Robocopy requests backup mode</a></td><td><pre data-lang="spl"><code>index=windows earliest=-15m EventCode=1
-| where match(Image,&quot;(?i)robocopy\\.exe    <p style="margin-top:40px;">quot;)
+| where match(Image,&quot;(?i)robocopy\\.exe$&quot;)
     AND match(CommandLine,&quot;(?i)(^|\\s)/(b|zb)(\\s|$)&quot;)
 | table _time host User Image CommandLine ProcessGuid</code></pre></td></tr>
 <tr><td><a href="#d08">D08: Backup privilege on a new logon</a></td><td><pre data-lang="spl"><code>index=windows earliest=-15m EventCode=4672
